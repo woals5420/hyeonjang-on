@@ -740,3 +740,77 @@ footer .candidate-nav a { color: #aab5c1; }
   .loss-results > i { transform: rotate(90deg); text-align: center; }
   .digsafe-page .page-howto { grid-template-columns: 1fr; }
 }
+
+/* Recover: plain-language incident and AI dispatch decision */
+.incident-brief { display: grid; grid-template-columns: .9fr .9fr 1.35fr; gap: 1px; margin: 0 max(24px, calc((100vw - 1340px) / 2)) 18px; border: 1px solid var(--line); background: var(--line); }
+.incident-brief > div { min-height: 112px; padding: 20px 22px; background: #fff; }
+.incident-brief small { display: block; margin-bottom: 10px; color: var(--green); font-size: 11px; font-weight: 900; }
+.incident-brief strong { display: block; color: var(--navy); font-size: 14px; line-height: 1.65; word-break: keep-all; }
+.incident-brief .incident-sequence { background: #f8f5e8; }
+.incident-brief > p { grid-column: 1/-1; display: flex; gap: 14px; align-items: flex-start; margin: 0; padding: 14px 22px; background: #fff; color: #596773; font-size: 12px; line-height: 1.6; }
+.incident-brief > p b { flex: none; color: var(--navy); }
+.rg-site-summary strong em { margin-left: 3px; color: #73808a; font-family: inherit; font-size: 11px; font-style: normal; }
+.readiness-summary b, .section-help b { color: var(--navy); }
+
+.ai-plan-summary { display: grid; grid-template-columns: repeat(4, 1fr); margin: 14px 0 12px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.ai-plan-summary > div { min-height: 78px; padding: 14px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #f7f8f6; }
+.ai-plan-summary small { display: block; margin-bottom: 8px; color: #73808a; font-size: 10px; }
+.ai-plan-summary strong { color: var(--navy); font-size: 18px; letter-spacing: -.035em; }
+.ai-plan-summary em { margin-left: 3px; color: #7a858d; font-size: 10px; font-style: normal; }
+.ai-plan-summary .plan-warning { background: #fff5eb; }
+.ai-plan-summary .plan-warning strong { color: #c65039; }
+.ai-priority { display: grid; grid-template-columns: auto auto 1fr; gap: 10px; align-items: center; margin: 0 0 8px; padding: 12px 14px; border-left: 4px solid var(--yellow); background: #f8f5e8; }
+.ai-priority b { color: #6f622c; font-size: 10px; }
+.ai-priority strong { color: var(--navy); font-size: 14px; }
+.ai-priority span { color: #75808a; font-size: 10px; text-align: right; }
+.transfer-row-rich { grid-template-columns: 95px 1.2fr 82px 38px 1fr; min-height: 78px; font-size: 11px; }
+.transfer-row-rich > em { width: 34px; height: 34px; background: #eef4f0; font-size: 10px; }
+.transfer-row-rich > em::after { content: '점'; margin-left: 1px; font-size: 7px; }
+.transfer-row-rich .backup-site { color: #66747d; }
+.transfer-row-rich .backup-site small { color: #879199; }
+.score-guide { margin: 12px 0 0; padding: 11px 12px; background: var(--paper); color: #69757d; font-size: 10px; line-height: 1.55; }
+.score-guide b { margin-right: 6px; color: var(--green); }
+
+.model-status { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; margin-top: 14px; padding: 14px 16px; border: 1px solid #cfd9d2; background: #eef4f0; }
+.model-status span { color: var(--green); font-size: 11px; font-weight: 900; white-space: nowrap; }
+.model-status span i { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(22,123,100,.12); }
+.model-status p { margin: 0; color: #637069; font-size: 11px; line-height: 1.55; }
+.rg-model > p b { color: var(--navy); }
+
+/* Keep operational text readable in a normal window, not only full screen. */
+@media (min-width: 701px) {
+  .candidate-nav a, .topbar nav a { font-size: 13px; }
+  .candidate-header > small, .header-status { font-size: 12px; }
+  .digsafe-page small, .recover-page small { font-size: 11px; }
+  .digsafe-page p, .recover-page p { font-size: 12px; }
+  .page-howto, .section-help, .readiness-proof > p, .readiness-summary, .rg-model > p { font-size: 12px; }
+  .kit-columns, .patrol-columns { font-size: 10px; }
+  .kit-row, .transfer-row, .dz-row { font-size: 11px; }
+  .kit-row strong, .transfer-row strong, .dz-row strong { font-size: 13px; }
+  .kit-row-wide strong small { font-size: 10px; }
+  .kit-row-wide > b, .kit-row-wide > em { font-size: 11px; }
+  .loss-copy p, .loss-lab > label, .loss-lab label small, .loss-results small, .loss-results p { font-size: 11px; }
+  .rg-model-metrics small { font-size: 11px; }
+}
+
+@media (max-width: 1100px) {
+  .incident-brief { grid-template-columns: 1fr 1fr; }
+  .incident-brief .incident-sequence { grid-column: 1/-1; }
+  .ai-plan-summary { grid-template-columns: repeat(2, 1fr); }
+  .transfer-row-rich { grid-template-columns: 90px 1fr 76px 36px; }
+  .transfer-row-rich .backup-site { grid-column: 2/-1; padding-bottom: 11px; }
+  .model-status { grid-template-columns: 1fr; gap: 7px; }
+}
+
+@media (max-width: 700px) {
+  .incident-brief { grid-template-columns: 1fr; }
+  .incident-brief .incident-sequence { grid-column: auto; }
+  .incident-brief > p { grid-column: auto; display: block; }
+  .incident-brief > p b { display: block; margin-bottom: 6px; }
+  .ai-plan-summary { grid-template-columns: 1fr 1fr; }
+  .ai-priority { grid-template-columns: 1fr; }
+  .ai-priority span { text-align: left; }
+  .transfer-row-rich { grid-template-columns: 1fr auto; gap: 8px 12px; padding: 12px 0; }
+  .transfer-row-rich > b, .transfer-row-rich > em { justify-self: end; }
+  .transfer-row-rich .backup-site { grid-column: 1/-1; padding-bottom: 0; }
+}
