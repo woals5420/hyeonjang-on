@@ -34,7 +34,7 @@ type SupportCandidate = {
   neural: number;
   stockCoverage: number;
   remaining: number;
-  supportScore: number;
+  rankValue: number;
 };
 
 const data = safetyData as Data;
@@ -177,10 +177,10 @@ export default function RecoverGrid() {
       const stockCoverage = shortage > 0 ? Math.min(stock.quantity / shortage, 1) : 1;
       const remaining = Math.max(0, stock.quantity - shortage);
       const reserveScore = Math.min(remaining / Math.max(1, needed.required), 1);
-      const supportScore = Math.round((stockCoverage * 0.55 + reserveScore * 0.25 + neural * 0.2) * 100);
-      return { site: candidate, ...stock, neural, stockCoverage, remaining, supportScore };
+      const rankValue = stockCoverage * 0.55 + reserveScore * 0.25 + neural * 0.2;
+      return { site: candidate, ...stock, neural, stockCoverage, remaining, rankValue };
     }).filter((candidate) => candidate.quantity > 0)
-      .sort((a, b) => b.supportScore - a.supportScore || b.quantity - a.quantity);
+      .sort((a, b) => b.rankValue - a.rankValue || b.quantity - a.quantity);
     return { ...needed, shortage, candidates };
   }).filter((item) => item.shortage > 0);
 
@@ -190,9 +190,9 @@ export default function RecoverGrid() {
       const match = transfer.candidates.find((item) => item.site === candidate);
       return Boolean(match && match.quantity >= transfer.shortage);
     }).length;
-    const averageScore = available.length ? available.reduce((sum, item) => sum + item.supportScore, 0) / available.length : 0;
-    return { site: candidate, fullCoverage, averageScore };
-  }).sort((a, b) => b.fullCoverage - a.fullCoverage || b.averageScore - a.averageScore);
+    const averageRank = available.length ? available.reduce((sum, item) => sum + item.rankValue, 0) / available.length : 0;
+    return { site: candidate, fullCoverage, averageRank };
+  }).sort((a, b) => b.fullCoverage - a.fullCoverage || b.averageRank - a.averageRank);
   const supportHub = hubRanking[0]?.fullCoverage ? hubRanking[0].site : '';
   const supportPlan = transfers.map((transfer) => {
     const hubCandidate = transfer.candidates.find((candidate) => candidate.site === supportHub && candidate.quantity >= transfer.shortage);
@@ -248,15 +248,12 @@ export default function RecoverGrid() {
       </section>
 
       <section className="rg-status">
-        <div className="readiness-ring" style={{ background: `conic-gradient(var(--grid-accent) ${readiness}%, #e2e7e3 ${readiness}% 100%)` }}><div><strong>{readiness}</strong><span>%</span><small>장비 준비율</small></div></div>
+        <div className="readiness-card">
+          <div className="readiness-ring" style={{ background: `conic-gradient(var(--grid-accent) ${readiness}%, #e2e7e3 ${readiness}% 100%)` }}><div><strong>{readiness}</strong><span>%</span><small>장비 준비율</small></div></div>
+          <div className="readiness-card-proof"><strong>계산 기준</strong><p>기능 중요도와 최소수량 충족률을 함께 반영합니다.</p><span>중요도 × (보유수량 ÷ 최소수량)</span><small>최소수량 초과분은 제외</small></div>
+        </div>
         <div className="rg-site-summary"><span>{site}</span><h2>{incidentProfile.label}</h2><div><p><small>보유 장비 종류</small><strong>{data.emergencyEquipment.bySite[site]?.items || 0}<em>종</em></strong></p><p><small>전체 보유 수량</small><strong>{data.emergencyEquipment.bySite[site]?.quantity || 0}<em>대</em></strong></p><p><small>미확보 기능군</small><strong>{transfers.length}<em>개</em></strong></p></div><p className="readiness-summary"><b>미확보 기능군</b>은 선택한 사고에 필요한 기능 중 실제 보유량이 최소수량보다 적은 항목입니다. 장비명이 달라도 같은 기능이면 한 장비군으로 합칩니다.</p></div>
         <div className="rg-fingerprint"><span>보유 구성</span>{fingerprintGroups.map((item) => <div key={item.label}><small>{item.label}</small><i><b style={{ width: `${Math.round(item.quantity / fingerprintMax * 100)}%` }} /></i><strong>{item.quantity}</strong></div>)}</div>
-      </section>
-
-      <section className="readiness-proof">
-        <div className="rg-title"><h2>준비율 계산</h2><small>실제 보유수량 우선</small></div>
-        <p><b>Σ(기능 중요도 × 수량 충족률) ÷ 중요도 합 × 100</b> · 수량 충족률은 ‘현재 보유수량 ÷ 화면의 최소수량’입니다. 필요한 수량을 넘는 재고는 준비율을 올리지 않습니다.</p>
-        <div className="proof-chips"><span>핵심 기능 3점</span><span>보조 기능 2점</span><span>지원 기능 1점</span><em>화면의 최소수량은 사고별 비교를 위한 시뮬레이션 기준이며 한국가스기술공사의 공식 출동 기준이 아닙니다.</em></div>
       </section>
 
       <section className="rg-main-grid">
@@ -271,38 +268,50 @@ export default function RecoverGrid() {
         </div>
 
         <div className="transfer-board">
-          <div className="rg-title"><h2>AI 공동출동안</h2><small>실재고 + 배치패턴 딥러닝</small></div>
-          <p className="section-help">각 장비를 따로 가져오지 않도록 여러 부족 기능을 함께 지원할 수 있는 <b>중심 사업장</b>을 먼저 찾습니다. 이후 실제 수량, 지원 후 잔여재고, 딥러닝 배치 적합도를 함께 비교합니다.</p>
+          <div className="rg-title"><h2>장비 지원</h2><small>사업장별 보유수량 비교</small></div>
+          <p className="section-help">필요한 수량을 보유한 다른 사업장을 찾습니다. 한 곳에서 여러 장비를 지원할 수 있으면 먼저 표시하고, 지원 후 그 사업장에 남는 수량도 함께 보여줍니다.</p>
           <div className="ai-plan-summary">
-            <div><small>중심 지원처</small><strong>{supportHub ? supportHub.replace('지사', '') : '추가 확인'}</strong></div>
-            <div><small>출동 사업장</small><strong>{supportSites.length}<em>곳</em></strong></div>
-            <div><small>이동 장비</small><strong>{transferUnits}<em>대</em></strong></div>
-            <div className={depletedDonors ? 'plan-warning' : ''}><small>지원처 재고 소진</small><strong>{depletedDonors}<em>건</em></strong></div>
+            <div><small>주 지원 사업장</small><strong>{supportHub ? supportHub.replace('지사', '') : '추가 확인'}</strong></div>
+            <div><small>지원 사업장</small><strong>{supportSites.length}<em>곳</em></strong></div>
+            <div><small>지원 수량</small><strong>{transferUnits}<em>대</em></strong></div>
+            <div className={depletedDonors ? 'plan-warning' : ''}><small>지원 후 재고 0</small><strong>{depletedDonors}<em>건</em></strong></div>
           </div>
-          {priorityGap && <p className="ai-priority"><b>먼저 확보</b><strong>{priorityGap.label} {priorityGap.shortage}대</strong><span>중요도와 부족수량을 함께 반영한 1순위입니다.</span></p>}
-          {supportPlan.map((item) => <div className="transfer-row transfer-row-rich" key={item.key}><div><strong>{item.label}</strong><small>{item.shortage}대 필요</small></div>{item.selected ? <><span><small>1차 지원</small>{item.selected.site.replace('지사', '')} · {Math.min(item.shortage, item.selected.quantity)}대</span><b>지원 후 {item.selected.remaining}대</b><em>{item.selected.supportScore}</em><span className="backup-site"><small>예비</small>{item.backup ? `${item.backup.site.replace('지사', '')} ${item.backup.quantity}대` : '확인 필요'}</span></> : <p>다른 사업장에도 확인 가능한 장비가 없습니다.</p>}</div>)}
+          {priorityGap && <p className="ai-priority"><b>우선 확보</b><strong>{priorityGap.label} {priorityGap.shortage}대</strong><span>사고 대응 중요도와 부족수량 기준</span></p>}
+          <div className="support-columns"><span>필요 장비</span><span>지원 가능 사업장</span><span>보유 → 지원 후</span><span>추가 지원처</span></div>
+          {supportPlan.map((item) => {
+            const moved = item.selected ? Math.min(item.shortage, item.selected.quantity) : 0;
+            const unresolved = Math.max(0, item.shortage - moved);
+            return <div className="support-row" key={item.key}>
+              <div><strong>{item.label}</strong><small>{item.shortage}대 지원 필요</small></div>
+              {item.selected ? <>
+                <div><strong>{item.selected.site.replace('지사', '')}</strong><small>{moved}대 지원 가능</small></div>
+                <div><strong>{item.selected.quantity}대 → {item.selected.remaining}대</strong><small>{unresolved ? `${unresolved}대 추가 확인` : '필요수량 충족 가능'}</small></div>
+                <div><strong>{item.backup ? item.backup.site.replace('지사', '') : '확인 필요'}</strong><small>{item.backup ? `${item.backup.quantity}대 보유` : '추가 지원처 없음'}</small></div>
+              </> : <p>다른 사업장에도 확인 가능한 장비가 없습니다.</p>}
+            </div>;
+          })}
           {transfers.length === 0 && <p className="rg-empty">이 상황의 최소 장비세트를 모두 충족합니다.</p>}
-          <div className="support-outcome"><small>추천안 적용 결과</small><strong>미확보 기능 {transfers.length}개 → {supportedKit.filter((item) => item.quantity < item.required).length}개</strong><p>준비율 {readiness}% → {supportedReadiness}%는 부가 결과입니다. 핵심은 출동 사업장 수를 줄이고, 지원처 자체 재고가 0이 되는 조합을 눈에 띄게 표시하는 것입니다.</p></div>
-          <p className="score-guide"><b>지원점수</b> 수량 충족 55% + 지원 후 잔여재고 25% + 딥러닝 배치 적합도 20%. 숫자가 높을수록 우선 검토 대상이며 거리·도로 상황은 포함하지 않습니다.</p>
+          <div className="support-outcome"><small>지원 반영</small><strong>부족 장비군 {transfers.length}개 → {supportedKit.filter((item) => item.quantity < item.required).length}개</strong><p>표시된 수량을 지원받는다고 가정하면 준비율은 {readiness}%에서 {supportedReadiness}%로 바뀝니다.</p></div>
+          <p className="score-guide"><b>지원처 선정 기준</b> 실제 보유수량과 지원 후 잔여수량을 먼저 비교하고, 조건이 비슷할 때 기존 장비 배치 패턴을 반영했습니다. 이동시간과 도로상황은 포함하지 않습니다.</p>
         </div>
       </section>
 
       <section className="loss-lab">
-        <div className="loss-copy"><span>손실 시나리오</span><h2>미확보 장비가 줄면 위험액은 얼마나 달라지나</h2><p>피해액 정답 데이터가 없어 AI가 피해액을 꾸며내지 않습니다. 담당자가 정한 최대 위험액에 ‘필요 장비 미확보율’을 적용해 지원 전후를 비교합니다.</p></div>
-        <label>사고 시 최대 노출액 <span><input type="number" min="1" max="9999" value={exposure} onChange={(event) => setExposure(Math.max(1, Number(event.target.value) || 1))} /> 억 원</span><small>설비 손상·가동중단을 합친 내부 시나리오 값을 입력</small></label>
+        <div className="loss-copy"><span>내부 시나리오</span><h2>손실 시뮬레이션</h2><p>담당자가 입력한 최대 예상 피해액에 장비 미확보율을 적용해 지원 전후를 비교합니다. 실제 사고 피해액 예측값은 아닙니다.</p></div>
+        <label>최대 예상 피해액 <span><input type="number" min="1" max="9999" value={exposure} onChange={(event) => setExposure(Math.max(1, Number(event.target.value) || 1))} /> 억 원</span><small>설비 손상과 가동중단을 합친 내부 시나리오 값을 입력</small></label>
         <div className="loss-results">
-          <div><small>현재 미확보 반영액</small><strong>{money(currentExposure)}</strong><p>{money(exposure)} × 장비 미확보율 {100 - readiness}%</p></div>
+          <div><small>현재 추정 피해액</small><strong>{money(currentExposure)}</strong><p>{money(exposure)} × 장비 미확보율 {100 - readiness}%</p></div>
           <i>→</i>
-          <div><small>지원 후 미확보 반영액</small><strong>{money(supportedExposure)}</strong><p>{money(exposure)} × 장비 미확보율 {100 - supportedReadiness}%</p></div>
-          <div className="protected-money"><small>줄어드는 위험액</small><strong>{money(protectedAmount)}</strong><p>AI 공동출동안을 적용했을 때의 시나리오 차이이며 실제 피해액 예측값은 아닙니다.</p></div>
+          <div><small>지원 후 추정 피해액</small><strong>{money(supportedExposure)}</strong><p>{money(exposure)} × 장비 미확보율 {100 - supportedReadiness}%</p></div>
+          <div className="protected-money"><small>감소 예상액</small><strong>{money(protectedAmount)}</strong><p>장비 지원 전후의 시뮬레이션 차이</p></div>
         </div>
       </section>
 
       <section className="rg-model">
-        <div className="rg-title"><h2>딥러닝 상태</h2><small>한국가스기술공사 공개데이터만 사용</small></div>
-        <div className="model-status"><span><i />학습 완료 · 신규 데이터 반영 시 재학습</span><p>사업장과 장비의 반복 배치 관계를 학습해 지원처 우선순위를 계산합니다. 화면을 열어둔 동안 실시간으로 학습하는 모델은 아닙니다.</p></div>
-        <div className="rg-model-metrics"><div><small>학습 원자료</small><strong>{number.format(model.data.records)}건</strong></div><div><small>학습 조합</small><strong>{number.format(model.data.trainPairs)}쌍</strong></div><div><small>검증 조합</small><strong>{number.format(model.data.testPairs)}쌍</strong></div><div><small>검증 정확도</small><strong>{(model.metrics.accuracy * 100).toFixed(1)}%</strong></div><div><small>구분 성능 AUC</small><strong>{model.metrics.auc.toFixed(3)}</strong></div></div>
-        <p><b>AI가 판단하는 것</b> 장비 부족분을 어느 사업장에서 묶어 지원할지와 지원 후 재고가 남는지를 비교합니다. <b>AI가 판단하지 않는 것</b> 실제 이동시간·도로상황·사고 피해액입니다. 검증 정확도 64.1%이므로 담당자 확인을 대신하지 않고 후보를 압축하는 용도로 사용합니다.</p>
+        <div className="rg-title"><h2>AI 학습 현황</h2><small>한국가스기술공사 공개데이터만 사용</small></div>
+        <div className="model-status"><span><i />학습 데이터 반영 완료</span><p>신규 장비 공개데이터가 추가되면 같은 방식으로 다시 학습합니다.</p></div>
+        <div className="rg-model-metrics"><div><small>학습 데이터</small><strong>{number.format(model.data.records)}건</strong></div><div><small>학습 사례</small><strong>{number.format(model.data.trainPairs)}쌍</strong></div><div><small>검증 사례</small><strong>{number.format(model.data.testPairs)}쌍</strong></div><div><small>검증 정확도</small><strong>{(model.metrics.accuracy * 100).toFixed(1)}%</strong></div><div><small>분류 성능(AUC)</small><strong>{model.metrics.auc.toFixed(3)}</strong></div></div>
+        <p><b>사용 위치</b> 장비 지원 화면의 사업장 표시 순서를 보조합니다. 실제 보유수량과 지원 후 잔여수량을 우선 확인하고, 조건이 비슷할 때 학습한 장비 배치 패턴을 반영합니다. 정확도 64.1%이므로 최종 확인은 담당자가 수행합니다.</p>
       </section>
     </main>
   );
