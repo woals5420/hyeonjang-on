@@ -299,7 +299,7 @@ export default function RecoverGrid() {
 
         <div className="transfer-board">
           <div className="rg-title"><h2>장비 지원</h2><small>{site.replace('지사', '')}로 옮기는 장비</small></div>
-          <p className="section-help">화살표 왼쪽은 장비를 보내는 사업장, 오른쪽은 현재 선택한 사업장입니다. 보낸 뒤 남는 수량까지 확인할 수 있습니다.</p>
+          <div className="support-legend"><span>보내는 곳</span><i>→</i><span>받는 곳</span><b>지원 후 재고</b></div>
           <div className="support-plan-strip">
             <div><small>필요 장비</small><strong>{transfers.length}<em>종</em></strong></div>
             <div><small>보내는 사업장</small><strong>{supportSites.length}<em>곳</em></strong></div>
@@ -327,22 +327,22 @@ export default function RecoverGrid() {
       </section>
 
       <section className="balance-lab">
-        <div className="balance-copy"><span>실제 보유수량 기준</span><h2>재배치 효과</h2><p>추천 수량을 옮겼을 때 받는 사업장뿐 아니라 보내는 사업장과 전사 장비 공백까지 함께 확인합니다.</p></div>
+        <div className="balance-copy"><span>실제 수량</span><h2>재배치 전후</h2></div>
         <div className="balance-metrics">
           <div><small>{site.replace('지사', '')} 준비율</small><p><strong>{readiness}%</strong><i>→</i><strong>{supportedReadiness}%</strong></p></div>
-          <div><small>보내는 사업장 중 최저</small><p><strong>{supportFloorBefore === null ? '-' : `${supportFloorBefore}%`}</strong><i>→</i><strong>{supportFloorAfter === null ? '-' : `${supportFloorAfter}%`}</strong></p></div>
-          <div><small>전체 사업장 부족 장비군</small><p><strong>{companyGapsBefore}개</strong><i>→</i><strong>{companyGapsAfter}개</strong></p></div>
+          <div><small>지원처 최저 준비율</small><p><strong>{supportFloorBefore === null ? '-' : `${supportFloorBefore}%`}</strong><i>→</i><strong>{supportFloorAfter === null ? '-' : `${supportFloorAfter}%`}</strong></p></div>
+          <div><small>전체 부족 장비군</small><p><strong>{companyGapsBefore}개</strong><i>→</i><strong>{companyGapsAfter}개</strong></p></div>
         </div>
-        <div className={keepsDonorReady ? 'balance-check balance-safe' : 'balance-check balance-warning'}><strong>{supportSites.length === 0 ? '추가 지원 불필요' : keepsDonorReady ? '옮긴 장비의 최소수량 유지' : '보내는 사업장 재고 확인 필요'}</strong><span>{supportSites.length === 0 ? '현재 선택한 사고의 장비세트를 충족합니다.' : keepsDonorReady ? '필요수량을 옮긴 뒤에도 보내는 사업장에 해당 장비의 최소수량이 남습니다.' : '일부 장비는 지원 후 최소수량보다 적어질 수 있습니다.'}</span></div>
+        <div className={keepsDonorReady ? 'balance-check balance-safe' : 'balance-check balance-warning'}><small>지원처 재고</small><strong>{supportSites.length === 0 ? '지원 불필요' : keepsDonorReady ? '최소수량 유지' : '확인 필요'}</strong></div>
       </section>
 
       <section className="rg-model">
-        <div className="rg-title"><h2>배치 공백 점검</h2><small>딥러닝 배치 분석</small></div>
-        <p className="section-help">선택한 사고뿐 아니라 전체 장비 기능을 살펴봅니다. 현재 수량이 부족하고 다른 사업장에 반복 배치된 장비를 먼저 보여줍니다.</p>
+        <div className="rg-title"><h2>배치 공백</h2><small>딥러닝 배치 분석</small></div>
+        <div className="placement-legend"><span>현재 부족</span><span>타 사업장 반복 보유</span><span>전체 사고유형</span></div>
         <div className="placement-cards">{learnedGaps.length ? learnedGaps.map((item, index) => <article key={item.key}><span>{String(index + 1).padStart(2, '0')}</span><div><small>다음 보완 장비</small><strong>{item.label}</strong><p>{item.usedIn.slice(0, 3).join(' · ')} 대응에 사용</p></div><div><small>현재</small><strong>{item.current}대</strong></div><div><small>다른 사업장</small><strong>{item.peerSites}곳 · {item.peerQuantity}대</strong></div></article>) : <p className="placement-empty">현재 공개데이터에서 추가로 확인할 장비 공백이 없습니다.</p>}</div>
-        <div className="model-status"><span><i />학습 데이터 반영 완료</span><p>신규 장비 공개데이터가 추가되면 같은 방식으로 다시 학습합니다.</p></div>
+        <div className="model-status"><span><i />학습 완료</span><p>공개데이터 350건 · 14개 사업장 · 59개 장비</p></div>
         <div className="rg-model-metrics"><div><small>학습 데이터</small><strong>{number.format(model.data.records)}건</strong></div><div><small>학습 사례</small><strong>{number.format(model.data.trainPairs)}쌍</strong></div><div><small>검증 사례</small><strong>{number.format(model.data.testPairs)}쌍</strong></div><div><small>검증 정확도</small><strong>{(model.metrics.accuracy * 100).toFixed(1)}%</strong></div><div><small>분류 성능(AUC)</small><strong>{model.metrics.auc.toFixed(3)}</strong></div></div>
-        <p><b>적용 범위</b> 장비 지원처와 보완 장비의 표시 순서를 정할 때 사용합니다. 실제 보유수량과 지원 후 재고를 우선하고, 조건이 비슷할 때 학습한 배치 패턴을 반영합니다. 정확도 64.1%이므로 최종 판단은 담당자가 수행합니다.</p>
+        <div className="model-use-tags"><b>적용</b><span>지원처 순서</span><span>보완 장비 순서</span><span>실제 수량 우선</span><span>담당자 최종 확인</span></div>
       </section>
     </main>
   );
