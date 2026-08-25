@@ -34,6 +34,7 @@ type SupportCandidate = {
   neural: number;
   stockCoverage: number;
   remaining: number;
+  safeAfter: boolean;
   rankValue: number;
 };
 
@@ -142,15 +143,9 @@ function readinessFor(items: { quantity: number; required: number; weight: numbe
   return Math.round(items.reduce((sum, item) => sum + item.weight * Math.min(item.quantity / item.required, 1), 0) / totalWeight * 100);
 }
 
-function money(value: number) {
-  if (value >= 1) return `${value.toFixed(value >= 10 ? 0 : 1)}억 원`;
-  return `${Math.round(value * 10000).toLocaleString('ko-KR')}만 원`;
-}
-
 export default function RecoverGrid() {
   const [site, setSite] = useState('대전충청지사');
   const [incident, setIncident] = useState<IncidentKey>('leak');
-  const [exposure, setExposure] = useState(10);
   const siteIndex = Math.max(0, model.sites.indexOf(site));
   const incidentProfile = incidents[incident];
   const requirements = incidentProfile.requirements as readonly Requirement[];
@@ -176,43 +171,78 @@ export default function RecoverGrid() {
       const neural = learnedNames.length ? learnedNames.reduce((sum, name) => sum + compatibility(candidate, name), 0) / learnedNames.length : 0;
       const stockCoverage = shortage > 0 ? Math.min(stock.quantity / shortage, 1) : 1;
       const remaining = Math.max(0, stock.quantity - shortage);
+      const safeAfter = remaining >= needed.required;
       const reserveScore = Math.min(remaining / Math.max(1, needed.required), 1);
-      const rankValue = stockCoverage * 0.55 + reserveScore * 0.25 + neural * 0.2;
-      return { site: candidate, ...stock, neural, stockCoverage, remaining, rankValue };
+      const rankValue = stockCoverage * 0.45 + (safeAfter ? 0.25 : 0) + reserveScore * 0.15 + neural * 0.15;
+      return { site: candidate, ...stock, neural, stockCoverage, remaining, safeAfter, rankValue };
     }).filter((candidate) => candidate.quantity > 0)
-      .sort((a, b) => b.rankValue - a.rankValue || b.quantity - a.quantity);
+      .sort((a, b) => Number(b.safeAfter) - Number(a.safeAfter) || b.rankValue - a.rankValue || b.quantity - a.quantity);
     return { ...needed, shortage, candidates };
   }).filter((item) => item.shortage > 0);
 
   const hubRanking = model.sites.filter((candidate) => candidate !== site).map((candidate) => {
     const available = transfers.map((transfer) => transfer.candidates.find((item) => item.site === candidate)).filter((item): item is SupportCandidate => Boolean(item));
-    const fullCoverage = transfers.filter((transfer) => {
+    const safeCoverage = transfers.filter((transfer) => {
       const match = transfer.candidates.find((item) => item.site === candidate);
-      return Boolean(match && match.quantity >= transfer.shortage);
+      return Boolean(match && match.quantity >= transfer.shortage && match.safeAfter);
     }).length;
     const averageRank = available.length ? available.reduce((sum, item) => sum + item.rankValue, 0) / available.length : 0;
-    return { site: candidate, fullCoverage, averageRank };
-  }).sort((a, b) => b.fullCoverage - a.fullCoverage || b.averageRank - a.averageRank);
-  const supportHub = hubRanking[0]?.fullCoverage ? hubRanking[0].site : '';
+    return { site: candidate, safeCoverage, averageRank };
+  }).sort((a, b) => b.safeCoverage - a.safeCoverage || b.averageRank - a.averageRank);
+  const supportHub = hubRanking[0]?.safeCoverage ? hubRanking[0].site : '';
   const supportPlan = transfers.map((transfer) => {
-    const hubCandidate = transfer.candidates.find((candidate) => candidate.site === supportHub && candidate.quantity >= transfer.shortage);
-    const selected = hubCandidate || transfer.candidates[0];
-    const backup = transfer.candidates.find((candidate) => candidate.site !== selected?.site && candidate.quantity >= transfer.shortage) || transfer.candidates.find((candidate) => candidate.site !== selected?.site);
+    const hubCandidate = transfer.candidates.find((candidate) => candidate.site === supportHub && candidate.quantity >= transfer.shortage && candidate.safeAfter);
+    const selected = hubCandidate
+      || transfer.candidates.find((candidate) => candidate.quantity >= transfer.shortage && candidate.safeAfter)
+      || transfer.candidates.find((candidate) => candidate.quantity >= transfer.shortage)
+      || transfer.candidates[0];
+    const backup = transfer.candidates.find((candidate) => candidate.site !== selected?.site && candidate.quantity >= transfer.shortage && candidate.safeAfter)
+      || transfer.candidates.find((candidate) => candidate.site !== selected?.site && candidate.quantity >= transfer.shortage)
+      || transfer.candidates.find((candidate) => candidate.site !== selected?.site);
     return { ...transfer, selected, backup };
-  });
+  }).sort((a, b) => b.weight * b.shortage - a.weight * a.shortage);
   const supportSites = [...new Set(supportPlan.map((item) => item.selected?.site).filter((item): item is string => Boolean(item)))];
   const transferUnits = supportPlan.reduce((sum, item) => sum + (item.selected ? Math.min(item.shortage, item.selected.quantity) : 0), 0);
   const depletedDonors = supportPlan.filter((item) => item.selected && item.selected.remaining === 0).length;
-  const priorityGap = [...supportPlan].sort((a, b) => b.weight * b.shortage - a.weight * a.shortage)[0];
 
   const supportedKit = kit.map((item) => {
     const support = supportPlan.find((transfer) => transfer.key === item.key)?.selected;
     return { ...item, quantity: item.quantity + (support ? Math.min(support.quantity, Math.max(0, item.required - item.quantity)) : 0) };
   });
   const supportedReadiness = readinessFor(supportedKit);
-  const currentExposure = exposure * (100 - readiness) / 100;
-  const supportedExposure = exposure * (100 - supportedReadiness) / 100;
-  const protectedAmount = Math.max(0, currentExposure - supportedExposure);
+
+  const adjustedQuantity = (targetSite: string, requirement: Requirement) => {
+    let quantity = inventoryFor(targetSite, requirement).quantity;
+    const plan = supportPlan.find((item) => item.key === requirement.key);
+    if (!plan?.selected) return quantity;
+    const moved = Math.min(plan.shortage, plan.selected.quantity);
+    if (targetSite === site) quantity += moved;
+    if (targetSite === plan.selected.site) quantity -= moved;
+    return Math.max(0, quantity);
+  };
+  const readinessAt = (targetSite: string, adjusted = false) => readinessFor(requirements.map((requirement) => ({
+    ...requirement,
+    quantity: adjusted ? adjustedQuantity(targetSite, requirement) : inventoryFor(targetSite, requirement).quantity,
+  })));
+  const supportFloorBefore = supportSites.length ? Math.min(...supportSites.map((targetSite) => readinessAt(targetSite))) : null;
+  const supportFloorAfter = supportSites.length ? Math.min(...supportSites.map((targetSite) => readinessAt(targetSite, true))) : null;
+  const companyGapsBefore = model.sites.reduce((sum, targetSite) => sum + requirements.filter((requirement) => inventoryFor(targetSite, requirement).quantity < requirement.required).length, 0);
+  const companyGapsAfter = model.sites.reduce((sum, targetSite) => sum + requirements.filter((requirement) => adjustedQuantity(targetSite, requirement) < requirement.required).length, 0);
+  const keepsDonorReady = supportPlan.every((item) => !item.selected || item.selected.safeAfter);
+
+  const allRequirements = Object.values(sharedRequirements) as Requirement[];
+  const learnedGaps = allRequirements.map((requirement) => {
+    const current = inventoryFor(site, requirement);
+    const learnedNames = model.equipment.filter((name) => matches(name, requirement));
+    const neural = learnedNames.length ? learnedNames.reduce((sum, name) => sum + compatibility(site, name), 0) / learnedNames.length : 0;
+    const peerSites = model.sites.filter((targetSite) => targetSite !== site && inventoryFor(targetSite, requirement).quantity > 0);
+    const peerQuantity = peerSites.reduce((sum, targetSite) => sum + inventoryFor(targetSite, requirement).quantity, 0);
+    const usedIn = Object.values(incidents).filter((profile) => profile.requirements.some((item) => item.key === requirement.key)).map((profile) => profile.label);
+    const signal = neural * .55 + peerSites.length / Math.max(1, model.sites.length - 1) * .45;
+    return { ...requirement, current: current.quantity, shortage: Math.max(0, requirement.required - current.quantity), peerSites: peerSites.length, peerQuantity, usedIn, signal };
+  }).filter((item) => item.shortage > 0 && item.peerSites >= 2)
+    .sort((a, b) => b.signal - a.signal || b.weight - a.weight || b.peerSites - a.peerSites)
+    .slice(0, 3);
 
   const fingerprintGroups = [
     { label: '펌프', keywords: ['펌프', 'p/p', '양수기'] },
@@ -238,13 +268,13 @@ export default function RecoverGrid() {
         </div>
       </section>
 
-      <div className="page-howto recover-howto"><strong>{incidentProfile.label}</strong><span>{incidentProfile.description}</span><i>→</i><span>보유 수량·미확보 기능·지원 사업장을 바로 확인</span></div>
+      <div className="page-howto recover-howto"><strong>{incidentProfile.label}</strong><span>{incidentProfile.description}</span><i>→</i><span>보유 수량·부족 장비·지원 사업장을 바로 확인</span></div>
 
       <section className="incident-brief" aria-label={`${incidentProfile.label} 대응 설명`}>
-        <div><small>무슨 사고인가</small><strong>{incidentProfile.description}</strong></div>
-        <div><small>가장 큰 위험</small><strong>{incidentProfile.danger}</strong></div>
-        <div className="incident-sequence"><small>현장 도착 직후</small><strong>{incidentProfile.firstResponse}</strong></div>
-        <p><b>판단 기준</b>{incidentProfile.decision}</p>
+        <div><small>상황</small><strong>{incidentProfile.description}</strong></div>
+        <div><small>위험 요인</small><strong>{incidentProfile.danger}</strong></div>
+        <div className="incident-sequence"><small>초동 조치</small><strong>{incidentProfile.firstResponse}</strong></div>
+        <p><b>주의사항</b>{incidentProfile.decision}</p>
       </section>
 
       <section className="rg-status">
@@ -252,7 +282,7 @@ export default function RecoverGrid() {
           <div className="readiness-ring" style={{ background: `conic-gradient(var(--grid-accent) ${readiness}%, #e2e7e3 ${readiness}% 100%)` }}><div><strong>{readiness}</strong><span>%</span><small>장비 준비율</small></div></div>
           <div className="readiness-card-proof"><strong>계산 기준</strong><p>기능 중요도와 최소수량 충족률을 함께 반영합니다.</p><span>중요도 × (보유수량 ÷ 최소수량)</span><small>최소수량 초과분은 제외</small></div>
         </div>
-        <div className="rg-site-summary"><span>{site}</span><h2>{incidentProfile.label}</h2><div><p><small>보유 장비 종류</small><strong>{data.emergencyEquipment.bySite[site]?.items || 0}<em>종</em></strong></p><p><small>전체 보유 수량</small><strong>{data.emergencyEquipment.bySite[site]?.quantity || 0}<em>대</em></strong></p><p><small>미확보 기능군</small><strong>{transfers.length}<em>개</em></strong></p></div><p className="readiness-summary"><b>미확보 기능군</b>은 선택한 사고에 필요한 기능 중 실제 보유량이 최소수량보다 적은 항목입니다. 장비명이 달라도 같은 기능이면 한 장비군으로 합칩니다.</p></div>
+        <div className="rg-site-summary"><span>{site}</span><h2>{incidentProfile.label}</h2><div><p><small>보유 장비 종류</small><strong>{data.emergencyEquipment.bySite[site]?.items || 0}<em>종</em></strong></p><p><small>전체 보유 수량</small><strong>{data.emergencyEquipment.bySite[site]?.quantity || 0}<em>대</em></strong></p><p><small>부족 장비군</small><strong>{transfers.length}<em>개</em></strong></p></div><p className="readiness-summary"><b>부족 장비군</b>은 선택한 사고에 필요한 장비 중 실제 보유량이 최소수량보다 적은 항목입니다. 장비명이 달라도 같은 기능이면 한 장비군으로 합칩니다.</p></div>
         <div className="rg-fingerprint"><span>보유 구성</span>{fingerprintGroups.map((item) => <div key={item.label}><small>{item.label}</small><i><b style={{ width: `${Math.round(item.quantity / fingerprintMax * 100)}%` }} /></i><strong>{item.quantity}</strong></div>)}</div>
       </section>
 
@@ -268,50 +298,51 @@ export default function RecoverGrid() {
         </div>
 
         <div className="transfer-board">
-          <div className="rg-title"><h2>장비 지원</h2><small>사업장별 보유수량 비교</small></div>
-          <p className="section-help">필요한 수량을 보유한 다른 사업장을 찾습니다. 한 곳에서 여러 장비를 지원할 수 있으면 먼저 표시하고, 지원 후 그 사업장에 남는 수량도 함께 보여줍니다.</p>
-          <div className="ai-plan-summary">
-            <div><small>주 지원 사업장</small><strong>{supportHub ? supportHub.replace('지사', '') : '추가 확인'}</strong></div>
-            <div><small>지원 사업장</small><strong>{supportSites.length}<em>곳</em></strong></div>
-            <div><small>지원 수량</small><strong>{transferUnits}<em>대</em></strong></div>
-            <div className={depletedDonors ? 'plan-warning' : ''}><small>지원 후 재고 0</small><strong>{depletedDonors}<em>건</em></strong></div>
+          <div className="rg-title"><h2>장비 지원</h2><small>{site.replace('지사', '')}로 옮기는 장비</small></div>
+          <p className="section-help">화살표 왼쪽은 장비를 보내는 사업장, 오른쪽은 현재 선택한 사업장입니다. 보낸 뒤 남는 수량까지 확인할 수 있습니다.</p>
+          <div className="support-plan-strip">
+            <div><small>필요 장비</small><strong>{transfers.length}<em>종</em></strong></div>
+            <div><small>보내는 사업장</small><strong>{supportSites.length}<em>곳</em></strong></div>
+            <div><small>옮기는 수량</small><strong>{transferUnits}<em>대</em></strong></div>
+            <div className={depletedDonors ? 'plan-warning' : ''}><small>지원 뒤 재고 0</small><strong>{depletedDonors}<em>건</em></strong></div>
           </div>
-          {priorityGap && <p className="ai-priority"><b>우선 확보</b><strong>{priorityGap.label} {priorityGap.shortage}대</strong><span>사고 대응 중요도와 부족수량 기준</span></p>}
-          <div className="support-columns"><span>필요 장비</span><span>지원 가능 사업장</span><span>보유 → 지원 후</span><span>추가 지원처</span></div>
-          {supportPlan.map((item) => {
+          <div className="support-route-list">{supportPlan.map((item) => {
             const moved = item.selected ? Math.min(item.shortage, item.selected.quantity) : 0;
             const unresolved = Math.max(0, item.shortage - moved);
-            return <div className="support-row" key={item.key}>
-              <div><strong>{item.label}</strong><small>{item.shortage}대 지원 필요</small></div>
+            return <article className="support-route" key={item.key}>
+              <header><div><small>필요</small><strong>{item.label} {item.shortage}대</strong></div><span className={item.selected?.safeAfter ? 'route-safe' : 'route-check'}>{item.selected?.safeAfter ? '지원 후 여유' : '재고 확인'}</span></header>
               {item.selected ? <>
-                <div><strong>{item.selected.site.replace('지사', '')}</strong><small>{moved}대 지원 가능</small></div>
-                <div><strong>{item.selected.quantity}대 → {item.selected.remaining}대</strong><small>{unresolved ? `${unresolved}대 추가 확인` : '필요수량 충족 가능'}</small></div>
-                <div><strong>{item.backup ? item.backup.site.replace('지사', '') : '확인 필요'}</strong><small>{item.backup ? `${item.backup.quantity}대 보유` : '추가 지원처 없음'}</small></div>
-              </> : <p>다른 사업장에도 확인 가능한 장비가 없습니다.</p>}
-            </div>;
-          })}
+                <div className="support-route-flow">
+                  <div><small>보내는 곳</small><strong>{item.selected.site.replace('지사', '')}</strong><span>현재 {item.selected.quantity}대</span></div>
+                  <p><b>{moved}대</b><i>→</i><small>지원</small></p>
+                  <div><small>받는 곳</small><strong>{site.replace('지사', '')}</strong><span>{item.quantity}대 → {item.quantity + moved}대</span></div>
+                </div>
+                <footer><span>{item.selected.site.replace('지사', '')}에 {item.selected.remaining}대 남음</span><span>{unresolved ? `${unresolved}대 추가 확보 필요` : '필요수량 충족'}</span><span>추가 지원처 {item.backup ? `${item.backup.site.replace('지사', '')} ${item.backup.quantity}대` : '없음'}</span></footer>
+              </> : <p className="route-empty">다른 사업장에도 확인 가능한 장비가 없습니다.</p>}
+            </article>;
+          })}</div>
           {transfers.length === 0 && <p className="rg-empty">이 상황의 최소 장비세트를 모두 충족합니다.</p>}
           <div className="support-outcome"><small>지원 반영</small><strong>부족 장비군 {transfers.length}개 → {supportedKit.filter((item) => item.quantity < item.required).length}개</strong><p>표시된 수량을 지원받는다고 가정하면 준비율은 {readiness}%에서 {supportedReadiness}%로 바뀝니다.</p></div>
-          <p className="score-guide"><b>지원처 선정 기준</b> 실제 보유수량과 지원 후 잔여수량을 먼저 비교하고, 조건이 비슷할 때 기존 장비 배치 패턴을 반영했습니다. 이동시간과 도로상황은 포함하지 않습니다.</p>
         </div>
       </section>
 
-      <section className="loss-lab">
-        <div className="loss-copy"><span>내부 시나리오</span><h2>손실 시뮬레이션</h2><p>담당자가 입력한 최대 예상 피해액에 장비 미확보율을 적용해 지원 전후를 비교합니다. 실제 사고 피해액 예측값은 아닙니다.</p></div>
-        <label>최대 예상 피해액 <span><input type="number" min="1" max="9999" value={exposure} onChange={(event) => setExposure(Math.max(1, Number(event.target.value) || 1))} /> 억 원</span><small>설비 손상과 가동중단을 합친 내부 시나리오 값을 입력</small></label>
-        <div className="loss-results">
-          <div><small>현재 추정 피해액</small><strong>{money(currentExposure)}</strong><p>{money(exposure)} × 장비 미확보율 {100 - readiness}%</p></div>
-          <i>→</i>
-          <div><small>지원 후 추정 피해액</small><strong>{money(supportedExposure)}</strong><p>{money(exposure)} × 장비 미확보율 {100 - supportedReadiness}%</p></div>
-          <div className="protected-money"><small>감소 예상액</small><strong>{money(protectedAmount)}</strong><p>장비 지원 전후의 시뮬레이션 차이</p></div>
+      <section className="balance-lab">
+        <div className="balance-copy"><span>실제 보유수량 기준</span><h2>재배치 효과</h2><p>추천 수량을 옮겼을 때 받는 사업장뿐 아니라 보내는 사업장과 전사 장비 공백까지 함께 확인합니다.</p></div>
+        <div className="balance-metrics">
+          <div><small>{site.replace('지사', '')} 준비율</small><p><strong>{readiness}%</strong><i>→</i><strong>{supportedReadiness}%</strong></p></div>
+          <div><small>보내는 사업장 중 최저</small><p><strong>{supportFloorBefore === null ? '-' : `${supportFloorBefore}%`}</strong><i>→</i><strong>{supportFloorAfter === null ? '-' : `${supportFloorAfter}%`}</strong></p></div>
+          <div><small>전체 사업장 부족 장비군</small><p><strong>{companyGapsBefore}개</strong><i>→</i><strong>{companyGapsAfter}개</strong></p></div>
         </div>
+        <div className={keepsDonorReady ? 'balance-check balance-safe' : 'balance-check balance-warning'}><strong>{supportSites.length === 0 ? '추가 지원 불필요' : keepsDonorReady ? '옮긴 장비의 최소수량 유지' : '보내는 사업장 재고 확인 필요'}</strong><span>{supportSites.length === 0 ? '현재 선택한 사고의 장비세트를 충족합니다.' : keepsDonorReady ? '필요수량을 옮긴 뒤에도 보내는 사업장에 해당 장비의 최소수량이 남습니다.' : '일부 장비는 지원 후 최소수량보다 적어질 수 있습니다.'}</span></div>
       </section>
 
       <section className="rg-model">
-        <div className="rg-title"><h2>AI 학습 현황</h2><small>한국가스기술공사 공개데이터만 사용</small></div>
+        <div className="rg-title"><h2>배치 공백 점검</h2><small>딥러닝 배치 분석</small></div>
+        <p className="section-help">선택한 사고뿐 아니라 전체 장비 기능을 살펴봅니다. 현재 수량이 부족하고 다른 사업장에 반복 배치된 장비를 먼저 보여줍니다.</p>
+        <div className="placement-cards">{learnedGaps.length ? learnedGaps.map((item, index) => <article key={item.key}><span>{String(index + 1).padStart(2, '0')}</span><div><small>다음 보완 장비</small><strong>{item.label}</strong><p>{item.usedIn.slice(0, 3).join(' · ')} 대응에 사용</p></div><div><small>현재</small><strong>{item.current}대</strong></div><div><small>다른 사업장</small><strong>{item.peerSites}곳 · {item.peerQuantity}대</strong></div></article>) : <p className="placement-empty">현재 공개데이터에서 추가로 확인할 장비 공백이 없습니다.</p>}</div>
         <div className="model-status"><span><i />학습 데이터 반영 완료</span><p>신규 장비 공개데이터가 추가되면 같은 방식으로 다시 학습합니다.</p></div>
         <div className="rg-model-metrics"><div><small>학습 데이터</small><strong>{number.format(model.data.records)}건</strong></div><div><small>학습 사례</small><strong>{number.format(model.data.trainPairs)}쌍</strong></div><div><small>검증 사례</small><strong>{number.format(model.data.testPairs)}쌍</strong></div><div><small>검증 정확도</small><strong>{(model.metrics.accuracy * 100).toFixed(1)}%</strong></div><div><small>분류 성능(AUC)</small><strong>{model.metrics.auc.toFixed(3)}</strong></div></div>
-        <p><b>사용 위치</b> 장비 지원 화면의 사업장 표시 순서를 보조합니다. 실제 보유수량과 지원 후 잔여수량을 우선 확인하고, 조건이 비슷할 때 학습한 장비 배치 패턴을 반영합니다. 정확도 64.1%이므로 최종 확인은 담당자가 수행합니다.</p>
+        <p><b>적용 범위</b> 장비 지원처와 보완 장비의 표시 순서를 정할 때 사용합니다. 실제 보유수량과 지원 후 재고를 우선하고, 조건이 비슷할 때 학습한 배치 패턴을 반영합니다. 정확도 64.1%이므로 최종 판단은 담당자가 수행합니다.</p>
       </section>
     </main>
   );
