@@ -44,6 +44,7 @@ type SupportCandidate = {
 const data = safetyData as Data;
 const model = equipmentModel as EquipmentModel;
 const number = new Intl.NumberFormat('ko-KR');
+const emergencySource = 'https://www.data.go.kr/data/15012412/fileData.do';
 const accents = ['#63e6be', '#7c9cff', '#ffc857', '#ff7b72', '#d79cff', '#60c8e8', '#a5d66f', '#ff9ac2', '#62d8c3', '#ffa36c', '#83b7ff', '#e4cf63', '#8acb9b', '#c6a5ff'];
 
 // Source: (주)한국가스기술공사_가스시설물 긴급복구장비 보유 목록_20260507
@@ -240,6 +241,7 @@ export default function RecoverGrid() {
     });
     return grouped;
   }, [site]);
+  const positiveEquipmentTypes = Object.values(inventory).filter((item) => item.quantity > 0).length;
 
   const kit = requirements.map((requirement) => ({ ...requirement, ...inventoryFor(site, requirement) }));
   const readiness = readinessFor(kit);
@@ -293,10 +295,10 @@ export default function RecoverGrid() {
   });
   const supportDecision = supportPlan.length === 0 ? '지원 불필요' : unresolvedShortages > 0 ? '안전 지원처 없음' : '지원 가능';
   const supportDecisionCopy = supportPlan.length === 0
-    ? '선택한 사고에 필요한 최소수량을 현재 사업장이 이미 보유하고 있습니다.'
+    ? '선택한 사고 시나리오의 기준수량을 현재 사업장이 이미 보유하고 있습니다.'
     : unresolvedShortages > 0
-      ? `${unresolvedShortages}종은 가까운 지사 중 지원 후 최소수량을 유지할 수 있는 곳이 없습니다.`
-      : '가장 가까운 안전 재고 보유지사에서 지원하며, 보내는 지사의 최소수량도 유지합니다.';
+      ? `${unresolvedShortages}종은 가까운 지사 중 지원 후 시나리오 기준수량을 유지할 수 있는 곳이 없습니다.`
+      : '가장 가까운 안전 재고 보유지사에서 지원하며, 보내는 지사의 시나리오 기준수량도 유지합니다.';
 
   const allRequirements = Object.values(sharedRequirements) as Requirement[];
   const learnedGaps = allRequirements.map((requirement) => {
@@ -355,18 +357,18 @@ export default function RecoverGrid() {
 
       <section className="rg-status">
         <div className="readiness-card">
-          <div className="readiness-ring" style={{ background: `conic-gradient(var(--grid-accent) ${readiness}%, #e2e7e3 ${readiness}% 100%)` }}><div><strong>{readiness}</strong><span>%</span><small>장비 준비율</small></div></div>
-          <div className="readiness-card-proof"><strong>계산 기준</strong><p>기능 중요도와 최소수량 충족률을 함께 반영합니다.</p><span>중요도 × (보유수량 ÷ 최소수량)</span><small>최소수량 초과분은 제외</small></div>
+          <div className="readiness-ring" style={{ background: `conic-gradient(var(--grid-accent) ${readiness}%, #e2e7e3 ${readiness}% 100%)` }}><div><strong>{readiness}</strong><span>%</span><small>시나리오 준비율</small></div></div>
+          <div className="readiness-card-proof"><strong>계산 기준</strong><p>선택한 사고에서 필요한 기능과 시나리오 기준수량의 충족률입니다.</p><span>기능 중요도 × 수량 충족률</span><small>공식 보유기준이 아닌 대응 비교값</small></div>
         </div>
-        <div className="rg-site-summary"><span>{site}</span><h2>{incidentProfile.label}</h2><div><p><small>보유 장비 종류</small><strong>{data.emergencyEquipment.bySite[site]?.items || 0}<em>종</em></strong></p><p><small>전체 보유 수량</small><strong>{data.emergencyEquipment.bySite[site]?.quantity || 0}<em>대</em></strong></p><p><small>부족 장비군</small><strong>{transfers.length}<em>개</em></strong></p></div><p className="readiness-summary"><b>부족 장비군</b>은 선택한 사고에 필요한 장비 중 실제 보유량이 최소수량보다 적은 항목입니다. 장비명이 달라도 같은 기능이면 한 장비군으로 합칩니다.</p></div>
+        <div className="rg-site-summary"><span>{site}</span><h2>{incidentProfile.label}</h2><div><p><small>실보유 장비 종류</small><strong>{positiveEquipmentTypes}<em>종</em></strong></p><p><small>전체 보유 수량</small><strong>{data.emergencyEquipment.bySite[site]?.quantity || 0}<em>대</em></strong></p><p><small>확인할 장비군</small><strong>{transfers.length}<em>개</em></strong></p></div><p className="readiness-summary"><b>확인할 장비군</b>은 선택한 사고 시나리오의 기준수량보다 실제 보유량이 적은 항목입니다. 장비명이 달라도 같은 기능이면 한 장비군으로 합칩니다.</p></div>
         <div className="rg-fingerprint"><span>보유 구성</span>{fingerprintGroups.map((item) => <div key={item.label}><small>{item.label}</small><i><b style={{ width: `${Math.round(item.quantity / fingerprintMax * 100)}%` }} /></i><strong>{item.quantity}</strong></div>)}</div>
       </section>
 
       <section className="rg-main-grid">
         <div className="dispatch-kit">
           <div className="rg-title"><h2>필요 장비</h2><small>{site.replace('지사', '')} · {incidentProfile.label}</small></div>
-          <p className="section-help">큰 글자는 <b>한국가스기술공사 원자료의 실제 장비명</b>입니다. 작은 글자는 장비가 맡는 기능입니다.</p>
-          <div className="kit-columns kit-columns-wide"><span>장비</span><span>용도</span><span>보유 / 최소</span><span>충족</span></div>
+          <p className="section-help">큰 글자는 <b>한국가스기술공사 원자료의 실제 장비명</b>입니다. 작은 글자는 장비가 맡는 기능이며, 기준수량은 사고별 대응을 비교하기 위한 시나리오 값입니다. <a href={emergencySource} target="_blank" rel="noreferrer">원문 ↗</a></p>
+          <div className="kit-columns kit-columns-wide"><span>장비</span><span>용도</span><span>보유 / 기준</span><span>충족</span></div>
           {kit.map((item) => {
             const coverage = Math.min(item.quantity / item.required, 1);
             return <div className="kit-row kit-row-wide" key={item.key}><strong>{item.names.slice(0, 2).join(' · ') || representativeEquipment(item)}<small>{item.label}</small></strong><span>{item.purpose}</span><b>{item.quantity} / {item.required}</b><em className={coverage >= 1 ? 'kit-ready' : 'kit-missing'}>{coverage >= 1 ? '충족' : `${item.required - item.quantity}대 부족`}</em></div>;
@@ -375,7 +377,7 @@ export default function RecoverGrid() {
 
         <div className="transfer-board">
           <div className="rg-title"><h2>장비 지원</h2><small>실제 장비명 · 실제 보유수량</small></div>
-          <p className="section-help">지원 후에도 최소수량을 유지할 수 있는 사업장만 남긴 뒤, <b>공개 주소 기준 직선거리가 가장 가까운 곳</b>을 우선 제시합니다.</p>
+          <p className="section-help">지원 후에도 사고 시나리오의 기준수량을 유지할 수 있는 사업장만 남긴 뒤, <b>공개 주소 기준 직선거리가 가장 가까운 곳</b>을 우선 제시합니다.</p>
           <div className="support-plan-strip">
             <div><small>필요 장비</small><strong>{transfers.length}<em>종</em></strong></div>
             <div><small>보내는 사업장</small><strong>{supportSites.length}<em>곳</em></strong></div>
@@ -407,7 +409,7 @@ export default function RecoverGrid() {
             </article>;
           })}</div>
           {transfers.length === 0 && <p className="rg-empty">이 상황의 최소 장비세트를 모두 충족합니다.</p>}
-          <div className="support-outcome"><small>지원 결과</small><strong>{unresolvedShortages ? `${unresolvedShortages}종은 안전 지원처 없음` : `${incidentProfile.label} 필요수량 충족`}</strong><p>{unresolvedShortages ? '가까워도 보내는 지사의 최소수량이 무너지면 지원처로 선정하지 않습니다.' : '가장 가까운 후보에서 필요한 수량만 옮기고, 보내는 지사의 최소수량을 유지합니다.'}</p></div>
+          <div className="support-outcome"><small>지원 결과</small><strong>{unresolvedShortages ? `${unresolvedShortages}종은 안전 지원처 없음` : `${incidentProfile.label} 시나리오 충족`}</strong><p>{unresolvedShortages ? '가까워도 보내는 지사의 시나리오 기준수량이 무너지면 지원처로 선정하지 않습니다.' : '가장 가까운 후보에서 필요한 수량만 옮기고, 보내는 지사의 시나리오 기준수량을 유지합니다.'}</p></div>
         </div>
       </section>
 
@@ -417,14 +419,14 @@ export default function RecoverGrid() {
           <div><small>받는 지사 준비율</small><strong>{readiness}% → {supportedReadiness}%</strong><p>{site} · {incidentProfile.label}</p></div>
           <div><small>이동 장비</small><strong>{transfers.length}종 · {transferUnits}대</strong><p>{supportEquipment.length ? supportEquipment.map((item) => `${item.name} ${item.destinationBefore}→${item.destinationAfter}대`).join(' · ') : '이동 장비 없음'}</p></div>
           <div><small>보내는 곳</small><strong>{supportSites.join(' · ') || '-'}</strong><p>{supportEquipment.length ? supportEquipment.map((item) => `${item.name} ${item.quantity}→${item.remaining}대`).join(' · ') : '지원 불필요'}</p></div>
-          <div><small>지원처 선정</small><strong>거리 + 안전재고</strong><p>지원 후 최소수량 유지 후보 중 가장 가까운 지사</p></div>
+          <div><small>지원처 선정</small><strong>거리 + 안전재고</strong><p>지원 후 시나리오 기준수량 유지 후보 중 가장 가까운 지사</p></div>
         </div>
         <div className={unresolvedShortages ? 'support-check-result check-warning' : 'support-check-result check-safe'}><small>판정</small><strong>{supportDecision}</strong><p>{supportDecisionCopy}</p></div>
       </section>
 
       <section className="rg-model">
         <div className="rg-title"><h2>추가 확보</h2><small>{learnedGaps.length}종 확인</small></div>
-        <p className="section-help">현재 사업장에 없거나 최소수량이 부족한 장비입니다. AI는 다른 사업장의 반복 보유 패턴을 학습해 <b>확인 순서만 정하고</b>, 아래 장비명·주소·수량·보유장소는 원자료를 그대로 씁니다.</p>
+        <p className="section-help">현재 사업장에 없거나 시나리오 기준수량이 부족한 장비입니다. 장비 패턴 신경망은 다른 사업장의 반복 보유 조합을 참고해 <b>확인 순서만 제안하고</b>, 지원 가능 여부는 수량·안전재고·거리로 판단합니다.</p>
         <div className="placement-cards">{learnedGaps.length ? learnedGaps.map((item, index) => {
           const donor = item.donor!;
           const donorInfo = siteDirectory[donor.site];
@@ -435,12 +437,12 @@ export default function RecoverGrid() {
             <div className="placement-risk"><small>없을 때</small><strong>{item.risk}</strong><p>{item.impact}</p></div>
             <div className="placement-route"><small>보유 지사</small><strong>{donor.site}</strong><p>{donorInfo?.address || '주소 확인 필요'}</p><span>{donorInfo ? `연락 ${donorInfo.phone}` : ''}</span></div>
             <div className="placement-balance"><small>지원 전 → 지원 후</small><strong>{item.allocations.map((stock) => `${stock.name} ${stock.quantity}대 → ${stock.remaining}대`).join(' · ')}</strong><p>{site} {item.current}대 → {item.current + item.moved}대</p></div>
-            <div className="placement-time"><small>선정 기준</small><strong>직선거리 약 {donor.distanceKm}km</strong><p>지원 후 최소수량 유지</p></div>
+            <div className="placement-time"><small>선정 기준</small><strong>직선거리 약 {donor.distanceKm}km</strong><p>지원 후 시나리오 기준수량 유지</p></div>
           </article>;
         }) : <p className="placement-empty">현재 공개데이터에서 추가로 확인할 장비가 없습니다.</p>}</div>
-        <div className="model-status"><span><i />AI 학습 완료</span><p>장비 보유 350건 · 14개 사업장 · 59개 장비명을 학습해 추가 확보 장비와 지원처의 확인 순서를 계산했습니다.</p></div>
-        <div className="rg-model-metrics"><div><small>학습 데이터</small><strong>{number.format(model.data.records)}건</strong></div><div><small>학습 사례</small><strong>{number.format(model.data.trainPairs)}쌍</strong></div><div><small>검증 사례</small><strong>{number.format(model.data.testPairs)}쌍</strong></div><div><small>검증 정확도</small><strong>{(model.metrics.accuracy * 100).toFixed(1)}%</strong></div><div><small>분류 성능(AUC)</small><strong>{model.metrics.auc.toFixed(3)}</strong></div></div>
-        <div className="model-use-tags"><b>구분</b><span>AI: 추가 확보 순서</span><span>지원처: 거리·안전재고</span><span>수량·주소: 원자료</span></div>
+        <div className="model-status"><span><i />장비 패턴 분석</span><p>신경망은 14개 사업장의 장비 동반 보유 패턴을 참고해 추가 확인 순서만 제안합니다. 지원 결정에는 사용하지 않습니다.</p></div>
+        <div className="rg-model-metrics"><div><small>원자료</small><strong>{number.format(model.data.records)}건</strong></div><div><small>사업장</small><strong>{model.data.sites}곳</strong></div><div><small>장비명</small><strong>{model.data.equipmentTypes}종</strong></div><div><small>분석 조합</small><strong>{number.format(model.data.allPairs)}쌍</strong></div></div>
+        <div className="model-use-tags"><b>역할 분리</b><span>신경망: 확인 순서</span><span>지원 결정: 수량·거리</span><span>최종 판단: 담당자</span><span>수량·주소: 원자료</span></div>
       </section>
     </main>
   );
