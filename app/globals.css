@@ -468,7 +468,7 @@ footer .candidate-nav a { color: #aab5c1; }
 .neighbor-sites span { color: var(--grid-accent); font: 900 9px/1 ui-monospace, Consolas, monospace; }
 .neighbor-sites small { color: #6f8189; font-size: 7px; }
 .rg-model { margin: 0 max(24px, calc((100vw - 1340px) / 2)) 80px; }
-.rg-model-metrics { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 18px; border-top: 1px solid #2a3a42; border-left: 1px solid #2a3a42; }
+.rg-model-metrics { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 18px; border-top: 1px solid #2a3a42; border-left: 1px solid #2a3a42; }
 .rg-model-metrics > div { padding: 17px; border-right: 1px solid #2a3a42; border-bottom: 1px solid #2a3a42; }
 .rg-model-metrics small { display: block; color: #72848c; font-size: 8px; }
 .rg-model-metrics strong { display: block; margin-top: 8px; color: var(--grid-accent); font: 900 22px/1 ui-monospace, Consolas, monospace; }
@@ -612,6 +612,7 @@ footer .candidate-nav a { color: #aab5c1; }
 .page-howto i { color: var(--green); font-style: normal; font-weight: 900; }
 .dz-action > small { display: block; margin-bottom: 6px; color: #7a8690; font-size: 8px; }
 .section-help { margin: 10px 0 8px; color: #73808a; font-size: 9px; line-height: 1.5; }
+.section-help a { color: var(--green); font-weight: 900; text-decoration: underline; text-underline-offset: 2px; }
 .patrol-columns { display: grid; grid-template-columns: 28px 90px 1fr 35px 45px; gap: 10px; align-items: center; min-height: 30px; padding: 0 9px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: #89939b; font-size: 7px; }
 .patrol-columns span:nth-last-child(-n+2) { text-align: right; }
 .metric-caption { margin: 17px 0 -10px; color: #7c8790; font-size: 8px; font-weight: 800; }
@@ -907,6 +908,11 @@ footer .candidate-nav a { color: #aab5c1; }
   .support-check { grid-template-columns: 1fr; }
   .support-check-result { grid-column: auto; }
   .support-check-metrics { grid-template-columns: 1fr; }
+  .branch-bars button { min-height: 44px; }
+  .risk-simulator input[type='range'], .dz-inputs input[type='range'] { min-height: 44px; }
+  .eocs-note a { display: inline-flex; min-height: 36px; align-items: center; margin-right: 8px; }
+  .digsafe-page small, .recover-page small { font-size: 10px; }
+  .digsafe-page p, .recover-page p { font-size: 11px; }
 }
 
 @media (max-width: 460px) {

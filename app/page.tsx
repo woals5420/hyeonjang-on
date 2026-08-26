@@ -170,6 +170,12 @@ function shortDate(value: string) {
   return month && day ? `${Number(month)}월 ${Number(day)}일` : value;
 }
 
+function emergencyTypeCount(site: string) {
+  return new Set(data.emergencyEquipment.records
+    .filter((record) => record.site === site && record.quantity > 0)
+    .map((record) => record.equipment)).size;
+}
+
 export default function Home() {
   const [task, setTask] = useState<TaskKey>('pipe');
   const [site, setSite] = useState('대전충청');
@@ -213,6 +219,7 @@ export default function Home() {
       grouped.set(record.equipment, current);
     });
     return [...grouped.entries()].map(([equipment, value]) => ({ equipment, quantity: value.quantity, locations: [...value.locations].join(' · ') }))
+      .filter((item) => item.quantity > 0)
       .filter((item) => item.equipment.includes(equipmentQuery.trim()))
       .sort((a, b) => b.quantity - a.quantity);
   }, [dispatchSite, equipmentQuery]);
@@ -223,11 +230,12 @@ export default function Home() {
     .filter((item) => item.quantity > 0)
     .sort((a, b) => b.quantity - a.quantity);
 
+  const verifiedTraining = useMemo(() => data.training.records.filter((course) => course.end >= course.start), []);
   const recommendedTraining = useMemo(() => {
     const keywords = tasks[task].trainingKeywords;
-    const matched = data.training.records.filter((course) => keywords.some((keyword) => course.name.includes(keyword)));
-    return (matched.length >= 4 ? matched : [...matched, ...data.training.records.filter((course) => !matched.includes(course))]).slice(0, 4);
-  }, [task]);
+    const matched = verifiedTraining.filter((course) => keywords.some((keyword) => course.name.includes(keyword)));
+    return (matched.length >= 4 ? matched : [...matched, ...verifiedTraining.filter((course) => !matched.includes(course))]).slice(0, 4);
+  }, [task, verifiedTraining]);
 
   const yearlyNearMiss = Object.keys(data.nearMiss.records[0].values).map((year) => ({
     year,
@@ -332,15 +340,15 @@ export default function Home() {
 
         <div className="excavation-grid">
           <div className="excavation-map">
-            <div className="panel-heading"><div><strong>지사별 감시 밀도</strong><small>2019–2026 예방활동 누적</small></div><select value={excavationBranch} onChange={(event) => setExcavationBranch(event.target.value)}>{Object.keys(data.excavation.byBranch).map((branch) => <option key={branch}>{branch}</option>)}</select></div>
+            <div className="panel-heading"><div><strong>지사별 감시 밀도</strong><small>2019–2026 예방활동 누적</small></div><select aria-label="굴착 기록 관할 지사" value={excavationBranch} onChange={(event) => setExcavationBranch(event.target.value)}>{Object.keys(data.excavation.byBranch).map((branch) => <option key={branch}>{branch}</option>)}</select></div>
             <div className="branch-bars">{Object.entries(data.excavation.byBranch).map(([branch, count]) => <button key={branch} className={branch === excavationBranch ? 'active-branch' : ''} onClick={() => setExcavationBranch(branch)}><span>{branch.replace('지사', '')}</span><div><i style={{ width: `${Math.round((count / branchMax) * 100)}%` }} /></div><strong>{count}</strong></button>)}</div>
           </div>
 
           <div className="risk-simulator">
             <div className="panel-heading"><div><strong>현장 확인</strong><small>관할·공종·시기·이격거리 반영</small></div><span className={excavationRisk >= 70 ? 'risk-high' : 'risk-watch'}>{excavationRisk >= 70 ? '즉시 확인' : '순찰 우선'}</span></div>
-            <label>작업 월 <strong>{excavationMonth}월</strong><input type="range" min="1" max="12" step="1" value={excavationMonth} onChange={(event) => setExcavationMonth(Number(event.target.value))} /></label>
+            <label>작업 월 <strong>{excavationMonth}월</strong><input aria-label="굴착 작업 월" type="range" min="1" max="12" step="1" value={excavationMonth} onChange={(event) => setExcavationMonth(Number(event.target.value))} /></label>
             <label>공사 종류<select value={excavationWork} onChange={(event) => setExcavationWork(event.target.value)}>{Object.keys(data.excavation.byWork).map((work) => <option key={work}>{work.replace('타공사_', '')}</option>)}</select></label>
-            <label>배관과 이격거리 <strong>{excavationDistance}m</strong><input type="range" min="0" max="20" step="0.5" value={excavationDistance} onChange={(event) => setExcavationDistance(Number(event.target.value))} /></label>
+            <label>배관과 이격거리 <strong>{excavationDistance}m</strong><input aria-label="배관과 이격거리" type="range" min="0" max="20" step="0.5" value={excavationDistance} onChange={(event) => setExcavationDistance(Number(event.target.value))} /></label>
             <div className="excavation-score"><small>미신고 가능성</small><strong>{excavationRisk}</strong><span>%</span></div>
             <p>유사 기록 {excavationSamples}건 반영 · {excavationDistance <= 3 ? '배관 3m 이내, 신고 여부와 입회자 즉시 확인' : '순찰 등록 후 굴착 전 신고 재확인'}</p>
           </div>
@@ -355,10 +363,10 @@ export default function Home() {
       <section className="dispatch-section" id="dispatch">
         <div className="section-heading"><div><p className="kicker"><span /> 14개 사업장 · 350건</p><h2><a className="section-title-link" href="/recover">긴급복구장비 <small>→</small></a></h2></div><p>사업장별 보유 장비와 부족 장비의 지원 가능 사업장을 확인합니다.</p></div>
         <div className="dispatch-grid">
-          <aside className="site-selector"><span>출동 사업장</span>{Object.keys(data.emergencyEquipment.bySite).map((item) => <button key={item} className={dispatchSite === item ? 'selected-site' : ''} onClick={() => setDispatchSite(item)}><strong>{item.replace('지사', '')}</strong><small>{data.emergencyEquipment.bySite[item].items}품목 · {data.emergencyEquipment.bySite[item].quantity}대</small></button>)}</aside>
+          <aside className="site-selector"><span>출동 사업장</span>{Object.keys(data.emergencyEquipment.bySite).map((item) => <button key={item} className={dispatchSite === item ? 'selected-site' : ''} onClick={() => setDispatchSite(item)}><strong>{item.replace('지사', '')}</strong><small>{emergencyTypeCount(item)}종 · {data.emergencyEquipment.bySite[item].quantity}대</small></button>)}</aside>
           <div className="inventory-panel">
-            <div className="inventory-summary"><div><small>선택 사업장</small><strong>{dispatchSite}</strong></div><div><small>긴급복구 품목</small><strong>{data.emergencyEquipment.bySite[dispatchSite]?.items || 0}</strong></div><div><small>보유 수량</small><strong>{data.emergencyEquipment.bySite[dispatchSite]?.quantity || 0}</strong></div><div><small>안전관리 장비</small><strong>{data.safetyEquipment.siteTotals[safetySite] || 0}</strong></div></div>
-            <label className="inventory-search"><span>장비 찾기</span><input value={equipmentQuery} onChange={(event) => setEquipmentQuery(event.target.value)} placeholder="예: 가스검지기, 크레인, 펌프" /></label>
+            <div className="inventory-summary"><div><small>선택 사업장</small><strong>{dispatchSite}</strong></div><div><small>실보유 장비 종류</small><strong>{emergencyTypeCount(dispatchSite)}</strong></div><div><small>보유 수량</small><strong>{data.emergencyEquipment.bySite[dispatchSite]?.quantity || 0}</strong></div><div><small>안전관리 장비</small><strong>{data.safetyEquipment.siteTotals[safetySite] || 0}</strong></div></div>
+            <label className="inventory-search"><span>장비 찾기</span><input aria-label="긴급복구 장비명 검색" value={equipmentQuery} onChange={(event) => setEquipmentQuery(event.target.value)} placeholder="예: 가스검지기, 크레인, 펌프" /></label>
             <div className="inventory-table"><div className="inventory-row inventory-head"><span>장비명</span><span>수량</span><span>보유장소</span></div>{equipmentRows.slice(0, 10).map((item) => <div className="inventory-row" key={item.equipment}><strong>{item.equipment}</strong><span>{item.quantity}대</span><span>{item.locations || '사업장 내 지정장소'}</span></div>)}{equipmentRows.length === 0 && <p className="empty-state">검색한 장비가 이 사업장에 없습니다.</p>}</div>
             <div className="dispatch-action"><div><span>안전관리 장비 상위 보유</span><p>{safetyRows.slice(0, 4).map((item) => `${item.equipment} ${item.quantity}대`).join(' · ') || '연결된 장비현황 없음'}</p></div><button type="button" onClick={() => copyText(`${dispatchSite} 출동 장비\n${equipmentRows.slice(0, 8).map((item) => `${item.equipment} ${item.quantity}대 (${item.locations})`).join('\n')}`, 'dispatch')}>{copied === 'dispatch' ? '복사 완료' : '출동목록 복사'}</button></div>
           </div>
@@ -374,14 +382,14 @@ export default function Home() {
             <div className="asset-legend">{Object.keys(data.maintenance.records[0].assets).map((asset) => <span key={asset}>{asset.replace('(기)', '').replace('(선좌)', '')}</span>)}</div>
           </div>
           <div className="training-panel">
-            <div className="panel-heading"><div><strong>{tasks[task].label} 추천 교육</strong><small>53개 과정 · 교육인원 {number.format(data.training.totalPeople)}명</small></div><span>작업 연계</span></div>
+            <div className="panel-heading"><div><strong>{tasks[task].label} 추천 교육</strong><small>원문 53개 · 일정 확인 {verifiedTraining.length}개</small></div><span>작업 연계</span></div>
             <div className="course-list">{recommendedTraining.map((course, index) => <article key={course.name}><em>0{index + 1}</em><div><strong>{course.name}</strong><p>{shortDate(course.start)}–{shortDate(course.end)} · {course.people}명</p></div><span>{tasks[task].trainingKeywords.find((keyword) => course.name.includes(keyword)) || '실무'}</span></article>)}</div>
           </div>
         </div>
       </section>
 
       <section className="control-section" id="control">
-        <div className="section-heading"><div><p className="kicker"><span /> 2018–2025</p><h2>안전 지표</h2></div><div className="control-total"><small>연결 데이터</small><strong>{number.format(data.meta.recordCount)}</strong><span>records</span></div></div>
+        <div className="section-heading"><div><p className="kicker"><span /> 2018–2025</p><h2>안전 지표</h2></div><div className="control-total"><small>안전현황 원자료</small><strong>{data.meta.datasetCount}종</strong><span>{number.format(data.meta.recordCount)}건</span></div></div>
         <div className="control-grid">
           <div className="trend-panel">
             <div className="panel-heading"><div><strong>아차사고 발굴 추이</strong><small>8개 유형 연간 합계</small></div><span>2018–2025</span></div>
@@ -395,12 +403,12 @@ export default function Home() {
         </div>
 
         <div className="manager-block">
-          <div className="manager-heading"><div><span>오늘의 조치</span><h3>확인해야 할 일 {managerChecks.filter((item) => !item).length}건</h3></div><small>항목을 누르면 완료 처리됩니다</small></div>
+          <div className="manager-heading"><div><span>현장 조치 메모</span><h3>확인해야 할 일 {managerChecks.filter((item) => !item).length}건</h3></div><small>선택한 현장·작업 기준 · 항목을 누르면 완료</small></div>
           <div className="action-list">{[
-            ['대전충청지사', '굴착 감시', '미신고 예방활동 최다 관할 — 배관 3m 이내 기록 우선 확인', '08:30'],
-            [dispatchSite, '장비 출동', `${equipmentRows[0]?.equipment || '복구장비'} 포함 출동목록 담당자 교차 확인`, '09:10'],
-            [site, tasks[task].label, `${tasks[task].equipment[0]} 작업 전 상태점검`, '10:00'],
-            ['전사', '교육 배치', `${recommendedTraining[0]?.name || '유지보수 과정'} 미이수자 확인`, '오늘'],
+            [siteMap[site].excavation, '굴착 확인', `${branchSignal}건 중 배관 3m 이내 기록과 EOCS 신고 여부 확인`, '확인 필요'],
+            [dispatchSite, '장비 출동', `${equipmentRows[0]?.equipment || '복구장비'} 포함 출동목록 담당자 교차 확인`, '확인 필요'],
+            [site, tasks[task].label, `${tasks[task].equipment[0]} 작업 전 상태점검`, '확인 필요'],
+            ['전사', '교육 확인', `${recommendedTraining[0]?.name || '유지보수 과정'} 이수 대상 확인`, '확인 필요'],
           ].map((item, index) => <button key={`${item[0]}-${index}`} className={managerChecks[index] ? 'action checked-action' : 'action'} onClick={() => setManagerChecks((current) => current.map((value, itemIndex) => itemIndex === index ? !value : value))}><span className="action-check">✓</span><strong>{item[0]}</strong><span>{item[1]}</span><p>{item[2]}</p><time>{managerChecks[index] ? '완료' : item[3]}</time></button>)}</div>
         </div>
       </section>
