@@ -7,10 +7,14 @@ import excavationModel from '../data/excavation-model.json';
 import eocsVolume from '../data/eocs-volume.json';
 
 type RecordRow = { branch: string; category: string; date: string; area: string; work: string; distance: number };
-type Data = { excavation: { records: RecordRow[]; byBranch: Record<string, number> } };
+type Data = {
+  meta: { sources: { key: string; name: string; url: string }[] };
+  excavation: { records: RecordRow[]; byBranch: Record<string, number> };
+};
 type Model = {
   trainRows: number;
   testRows: number;
+  metrics: { accuracy: number; auc: number; brier: number };
   calibration: { priorStrength: number; globalBaseRate: number };
   features: { branches: string[]; works: string[] };
   weights: number[][][];
@@ -23,6 +27,7 @@ type EocsData = { source: { name: string; period: string; url: string }; records
 const data = safetyData as Data;
 const model = excavationModel as Model;
 const eocs = eocsVolume as EocsData;
+const excavationSource = data.meta.sources.find((source) => source.key === 'excavation');
 const number = new Intl.NumberFormat('ko-KR');
 const accents = ['#ffb23f', '#f76954', '#d99aff', '#50c8b8', '#69a7ff', '#f1d05a', '#7bd08f', '#ff8fbd', '#99b75e', '#8e92ff', '#42b9cf'];
 const initialConditions: FieldConditions = { branch: '대전충청지사', work: '타공사_상수', month: 8, distance: 2 };
@@ -147,8 +152,8 @@ export default function DigSafe() {
           <div className="dz-section-title"><h2>현장 조건</h2><small>확인 버튼을 눌러 반영</small></div>
           <label>관할 지사<select value={draft.branch} onChange={(event) => setDraft((current) => ({ ...current, branch: event.target.value }))}>{model.features.branches.map((item) => <option key={item}>{item}</option>)}</select></label>
           <label>공사 종류<select value={draft.work} onChange={(event) => setDraft((current) => ({ ...current, work: event.target.value }))}>{model.features.works.map((item) => <option key={item}>{item.replace('타공사_', '')}</option>)}</select></label>
-          <label>작업 예정월 <strong>{draft.month}월</strong><input type="range" min="1" max="12" value={draft.month} onChange={(event) => setDraft((current) => ({ ...current, month: Number(event.target.value) }))} /></label>
-          <label>배관과 거리 <strong>{draft.distance}m</strong><input type="range" min="0" max="20" step="0.5" value={draft.distance} onChange={(event) => setDraft((current) => ({ ...current, distance: Number(event.target.value) }))} /></label>
+          <label>작업 예정월 <strong>{draft.month}월</strong><input aria-label="굴착 작업 예정월" type="range" min="1" max="12" value={draft.month} onChange={(event) => setDraft((current) => ({ ...current, month: Number(event.target.value) }))} /></label>
+          <label>배관과 거리 <strong>{draft.distance}m</strong><input aria-label="굴착 위치와 배관 거리" type="range" min="0" max="20" step="0.5" value={draft.distance} onChange={(event) => setDraft((current) => ({ ...current, distance: Number(event.target.value) }))} /></label>
           <div className={hasChanges ? 'condition-submit pending-condition' : 'condition-submit'}>
             <p>{hasChanges ? '조건이 바뀌었습니다. 아래 버튼을 눌러 결과에 반영하세요.' : `${branch.replace('지사', '')} · ${work.replace('타공사_', '')} · ${month}월 · ${distance}m 조건을 표시하고 있습니다.`}</p>
             <button type="submit" disabled={!hasChanges}>{hasChanges ? '이 조건으로 결과 확인' : '현재 조건 반영 완료'}</button>
@@ -171,7 +176,7 @@ export default function DigSafe() {
             <div><small>AI 학습 기록</small><strong>{model.trainRows}건</strong></div>
             <div><small>별도 검증 기록</small><strong>{model.testRows}건</strong></div>
           </div>
-          <p className="model-note">3층 신경망(32→16→8→1)을 2019–2024년 기록으로 학습했습니다. 학습에 넣지 않은 2025–2026년 기록에서는 미신고와 예방활동을 82% 구분했습니다. 이 확률은 확인 순서를 정하기 위한 참고값이며, 실제 신고 여부는 EOCS와 현장에서 확인해야 합니다.</p>
+          <p className="model-note">3층 신경망(32→16→8→1)을 2019–2024년 기록으로 학습하고, 학습에 넣지 않은 2025–2026년 {model.testRows}건으로 따로 검증했습니다. 정확도 {(model.metrics.accuracy * 100).toFixed(1)}% · AUC {model.metrics.auc.toFixed(3)}이며, 확률은 확인 순서를 정하는 참고값입니다. 실제 신고 여부는 EOCS와 현장에서 확인해야 합니다.</p>
         </div>
       </section>
 
@@ -179,14 +184,14 @@ export default function DigSafe() {
         <div className="patrol-board">
           <div className="dz-section-title"><h2>우선 확인 지사</h2><small>미신고 가능성 높은 순</small></div>
           <p className="section-help">{work.replace('타공사_', '')} · {month}월 · 배관거리 {distance}m 조건을 모든 지사에 똑같이 적용했습니다. 지사를 누르면 상세 기록이 바뀝니다.</p>
-          <div className="patrol-columns"><span>순서</span><span>지사</span><span>미신고 가능성</span><span>확률</span><span>민원 1만건당</span></div>
+          <div className="patrol-columns"><span>순서</span><span>지사</span><span>위험 막대</span><span>예측값</span><span>민원 1만건당</span></div>
           {patrol.map((item, index) => <button key={item.branch} type="button" className={branch === item.branch ? 'selected-patrol' : ''} onClick={() => selectPatrolBranch(item.branch)}><em>{String(index + 1).padStart(2, '0')}</em><strong>{item.branch.replace('지사', '')}</strong><span><i style={{ width: `${item.probability}%` }} /></span><b>{item.probability}%</b><small>{item.perTenThousand.toFixed(1)}건</small></button>)}
         </div>
 
         <div className="branch-fingerprint">
           <div className="dz-section-title"><h2>관할 기록</h2><small>{branch.replace('지사', '')}</small></div>
           <div className="branch-kpis branch-kpis-four"><div><small>굴착 확인 기록</small><strong>{branchRows.length}</strong><em>건</em></div><div><small>배관 3m 이내</small><strong>{branchRows.length ? Math.round(closeRows.length / branchRows.length * 100) : 0}</strong><em>%</em></div><div><small>EOCS 처리량</small><strong>{number.format(branchEocs.cases)}</strong><em>건</em></div><div><small>민원 1만건당 미신고</small><strong>{branchEocs.perTenThousand.toFixed(1)}</strong><em>건</em></div></div>
-          <p className="eocs-note">굴착 기록 수만 비교하면 업무량이 많은 지사가 크게 보입니다. 2019~2023년 EOCS 처리량을 함께 적용해 지사 규모 차이를 확인합니다. 자료별 지사명 차이는 같은 관할로 묶었습니다. <a href={eocs.source.url} target="_blank" rel="noreferrer">원문 ↗</a></p>
+          <p className="eocs-note">굴착 기록 수만 비교하면 업무량이 많은 지사가 크게 보입니다. 2019~2023년 EOCS 처리량을 함께 적용해 지사 규모 차이를 확인합니다. 자료별 지사명 차이는 같은 관할로 묶었습니다. {excavationSource && <a href={excavationSource.url} target="_blank" rel="noreferrer">굴착 기록 원문 ↗</a>} <a href={eocs.source.url} target="_blank" rel="noreferrer">EOCS 원문 ↗</a></p>
           <p className="metric-caption">이 지사의 월별 굴착 확인 건수</p>
           <div className="month-print">{monthCounts.map((count, index) => <div key={index} className={index + 1 === month ? 'active-month' : ''}><i style={{ height: `${Math.round(count / monthMax * 100)}%` }} /><small>{index + 1}</small></div>)}</div>
           <p className="metric-caption">이 지사에서 자주 확인한 공사 종류</p>
