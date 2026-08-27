@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://hyeonjang-on-3hdf.vercel.app'),
   title: '현장ON | 안전운영',
   description: '작업 전 점검, 굴착공사 관리, 긴급복구장비 현황을 한곳에서 확인하는 안전운영 서비스',
   openGraph: {
