@@ -76,8 +76,8 @@ function prediction(branch: string, work: string, month: number, distance: numbe
 
 function actionLabel(value: number) {
   if (value >= 50) return '신고 여부 즉시 확인';
-  if (value >= 30) return '순찰 우선 배정';
-  return '계획 순찰';
+  if (value >= 30) return '우선 확인 후보';
+  return '일반 확인';
 }
 
 function confidence(samples: number) {
@@ -141,50 +141,51 @@ export default function DigSafe() {
       </header>
 
       <section className="dz-hero">
-        <div className="dz-title"><span>배관 보호</span><h1>굴착공사 관리</h1><p>관할·공사 종류·예정월·배관거리를 바탕으로, 굴착공사정보지원센터(EOCS)에 신고되지 않은 공사일 가능성을 예측합니다.</p></div>
-        <div className="dz-score" aria-live="polite"><span>{branch.replace('지사', '')} · EOCS 미신고 가능성</span><strong>{probability}</strong><em>%</em><small>{actionLabel(probability)} · 유사 현장 {estimate.similar.length}건</small></div>
+        <div className="dz-title"><span>배관 보호</span><h1>굴착공사 관리</h1><p>공개된 굴착 예방활동 기록에서 입력 조건과 비슷한 사례를 찾고, 그 기록이 ‘미신고 굴착공사’ 유형일 가능성을 분류합니다.</p></div>
+        <div className="dz-score" aria-live="polite"><span>{branch.replace('지사', '')} · 미신고 유형 분류확률</span><strong>{probability}</strong><em>%</em><small>{actionLabel(probability)} · 유사 기록 {estimate.similar.length}건</small></div>
       </section>
 
-      <div className="page-howto"><strong>1 · 조건 입력</strong><span>관할·공사 종류·예정월·배관거리 선택</span><i>→</i><strong>2 · 결과 확인</strong><span>버튼을 누르면 미신고 가능성과 우선 확인 지사가 바뀝니다</span></div>
+      <div className="page-howto"><strong>1 · 조건 입력</strong><span>관할·공사 종류·예정월·배관거리 선택</span><i>→</i><strong>2 · 결과 확인</strong><span>버튼을 누르면 분류확률과 지사 비교가 바뀝니다</span></div>
 
       <section className="dz-console">
         <form className="dz-inputs" onSubmit={(event) => { event.preventDefault(); setApplied({ ...draft }); }}>
           <div className="dz-section-title"><h2>현장 조건</h2><small>확인 버튼을 눌러 반영</small></div>
           <label>관할 지사<select value={draft.branch} onChange={(event) => setDraft((current) => ({ ...current, branch: event.target.value }))}>{model.features.branches.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label>공사 종류<select value={draft.work} onChange={(event) => setDraft((current) => ({ ...current, work: event.target.value }))}>{model.features.works.map((item) => <option key={item}>{item.replace('타공사_', '')}</option>)}</select></label>
+          <label>공사 종류<select value={draft.work} onChange={(event) => setDraft((current) => ({ ...current, work: event.target.value }))}>{model.features.works.map((item) => <option key={item} value={item}>{item.replace('타공사_', '')}</option>)}</select></label>
           <label>작업 예정월 <strong>{draft.month}월</strong><input aria-label="굴착 작업 예정월" type="range" min="1" max="12" value={draft.month} onChange={(event) => setDraft((current) => ({ ...current, month: Number(event.target.value) }))} /></label>
           <label>배관과 거리 <strong>{draft.distance}m</strong><input aria-label="굴착 위치와 배관 거리" type="range" min="0" max="20" step="0.5" value={draft.distance} onChange={(event) => setDraft((current) => ({ ...current, distance: Number(event.target.value) }))} /></label>
           <div className={hasChanges ? 'condition-submit pending-condition' : 'condition-submit'}>
             <p>{hasChanges ? '조건이 바뀌었습니다. 아래 버튼을 눌러 결과에 반영하세요.' : `${branch.replace('지사', '')} · ${work.replace('타공사_', '')} · ${month}월 · ${distance}m 조건을 표시하고 있습니다.`}</p>
             <button type="submit" disabled={!hasChanges}>{hasChanges ? '이 조건으로 결과 확인' : '현재 조건 반영 완료'}</button>
           </div>
-          <div className="dz-action"><small>현재 결과에 따른 조치</small><strong>{actionLabel(probability)}</strong><p>{distance <= 3 ? '배관 3m 이내입니다. EOCS 신고 여부와 현장 입회자를 먼저 확인합니다.' : '순찰 경로에 등록하고 굴착 전에 EOCS 신고 여부를 다시 확인합니다.'}</p></div>
+          <div className="dz-action"><small>현재 결과에 따른 확인안</small><strong>{actionLabel(probability)}</strong><p>{distance <= 3 ? '배관 3m 이내입니다. EOCS 신고 여부와 현장 입회자를 먼저 확인합니다.' : '예정 작업 목록과 EOCS 신고 여부를 대조해 확인합니다.'}</p></div>
         </form>
 
         <div className="dz-network">
-          <div className="dz-section-title"><h2>예측 결과</h2><small>EOCS 미신고 가능성</small></div>
-          <p className="prediction-lead">입력한 조건의 굴착공사가 EOCS에 신고되지 않았을 가능성은 <strong>{probability}%</strong>입니다.</p>
+          <div className="dz-section-title"><h2>분류 결과</h2><small>과거 공개기록 기준</small></div>
+          <p className="prediction-lead">입력 조건과 닮은 예방활동 기록이 ‘미신고 굴착공사’ 유형으로 분류될 확률은 <strong>{probability}%</strong>입니다.</p>
           <div className="probability-proof probability-proof-three">
             <div><small>유사 현장</small><strong>{estimate.similar.length}건 중 {estimate.missed}건</strong><p>같은 지사·공사 종류·{estimate.band.label} 기록</p></div>
-            <div><small>전체 기록</small><strong>642건 중 181건</strong><p>미신고 예방활동 비율 {Math.round(model.calibration.globalBaseRate * 100)}%</p></div>
+            <div><small>전체 공개기록</small><strong>642건 중 181건</strong><p>미신고 유형 기록 {Math.round(model.calibration.globalBaseRate * 100)}%</p></div>
             <div className="proof-result"><small>근거 신뢰도</small><strong>{confidence(estimate.similar.length)}</strong><p>유사 현장 {estimate.similar.length}건을 기준으로 판단</p></div>
           </div>
-          <p className="proof-formula"><b>산정 방식</b> AI가 지사·공사 종류·예정월·배관거리에서 만든 32개 분석항목을 먼저 계산합니다. 비슷한 현장 기록이 적으면 전체 642건의 미신고 비율을 함께 반영해 지나치게 높거나 낮은 예측을 줄입니다.</p>
+          <p className="proof-formula"><b>산정 방식</b> 신경망이 지사·공사 종류·예정월·배관거리에서 만든 32개 분석항목을 계산합니다. 비슷한 기록이 적으면 전체 642건의 미신고 유형 비율을 함께 반영해 지나치게 높거나 낮은 결과를 줄입니다.</p>
+          <div className="prediction-boundary"><span><b>예측 대상</b> 공개 예방활동 기록의 유형</span><span><b>예측하지 않음</b> 실제 굴착 건수·현장 신고 여부</span><span><b>최종 확인</b> EOCS 조회·현장 확인</span></div>
           <div className="model-metrics">
             <div><small>{branch.replace('지사', '')} 기록 중 미신고</small><strong>{Math.round(rate(branchRows) * 100)}%</strong></div>
             <div><small>{work.replace('타공사_', '')} 공사 중 미신고</small><strong>{Math.round(rate(workRows) * 100)}%</strong></div>
             <div><small>AI 학습 기록</small><strong>{model.trainRows}건</strong></div>
             <div><small>별도 검증 기록</small><strong>{model.testRows}건</strong></div>
           </div>
-          <p className="model-note">3층 신경망(32→16→8→1)을 2019–2024년 기록으로 학습하고, 학습에 넣지 않은 2025–2026년 {model.testRows}건으로 따로 검증했습니다. 정확도 {(model.metrics.accuracy * 100).toFixed(1)}% · AUC {model.metrics.auc.toFixed(3)}이며, 확률은 확인 순서를 정하는 참고값입니다. 실제 신고 여부는 EOCS와 현장에서 확인해야 합니다.</p>
+          <p className="model-note">3층 신경망(32→16→8→1)을 2019–2024년 기록으로 학습하고, 학습에 넣지 않은 2025–2026년 {model.testRows}건으로 따로 검증했습니다. 정확도 {(model.metrics.accuracy * 100).toFixed(1)}% · AUC {model.metrics.auc.toFixed(3)}입니다. 이 값은 전체 굴착공사의 실제 미신고 발생률이 아니라, 공개기록의 확인 순서를 정하는 참고값입니다.</p>
         </div>
       </section>
 
       <section className="dz-grid">
         <div className="patrol-board">
-          <div className="dz-section-title"><h2>우선 확인 지사</h2><small>미신고 가능성 높은 순</small></div>
+          <div className="dz-section-title"><h2>모델 확인 순위</h2><small>미신고 유형 분류확률 순</small></div>
           <p className="section-help">{work.replace('타공사_', '')} · {month}월 · 배관거리 {distance}m 조건을 모든 지사에 똑같이 적용했습니다. 지사를 누르면 상세 기록이 바뀝니다.</p>
-          <div className="patrol-columns"><span>순서</span><span>지사</span><span>위험 막대</span><span>예측값</span><span>민원 1만건당</span></div>
+          <div className="patrol-columns"><span>순서</span><span>지사</span><span>분류 막대</span><span>분류확률</span><span>민원 1만건당</span></div>
           {patrol.map((item, index) => <button key={item.branch} type="button" className={branch === item.branch ? 'selected-patrol' : ''} onClick={() => selectPatrolBranch(item.branch)}><em>{String(index + 1).padStart(2, '0')}</em><strong>{item.branch.replace('지사', '')}</strong><span><i style={{ width: `${item.probability}%` }} /></span><b>{item.probability}%</b><small>{item.perTenThousand.toFixed(1)}건</small></button>)}
         </div>
 
