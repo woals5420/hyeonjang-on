@@ -3,28 +3,9 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import CandidateNav from '../components/CandidateNav';
 import safetyData from '../data/kgtc-safety.json';
-import equipmentModel from '../data/equipment-model.json';
 
 type EquipmentRecord = { site: string; equipment: string; quantity: number; location: string };
 type Data = { emergencyEquipment: { records: EquipmentRecord[]; bySite: Record<string, { items: number; quantity: number }> } };
-type EquipmentModel = {
-  architecture: string;
-  description: string;
-  data: { records: number; sites: number; equipmentTypes: number; positivePairs: number; allPairs: number; trainPairs: number; testPairs: number };
-  metrics: { accuracy: number; auc: number; brier: number };
-  sites: string[];
-  equipment: string[];
-  weights: {
-    siteEmbedding: number[][];
-    equipmentEmbedding: number[][];
-    w1: number[][];
-    b1: number[];
-    w2: number[][];
-    b2: number[];
-    w3: number[][];
-    b3: number[];
-  };
-};
 type Requirement = { key: string; label: string; purpose: string; risk: string; impact: string; required: number; weight: number; patterns: string[] };
 type EquipmentStockItem = { name: string; quantity: number; locations: string[] };
 type SupportCandidate = {
@@ -33,17 +14,15 @@ type SupportCandidate = {
   names: string[];
   locations: string[];
   items: EquipmentStockItem[];
-  neural: number;
   stockCoverage: number;
   remaining: number;
   safeAfter: boolean;
   distanceKm: number;
-  rankValue: number;
 };
 
 const data = safetyData as Data;
-const model = equipmentModel as EquipmentModel;
-const number = new Intl.NumberFormat('ko-KR');
+const sites = [...new Set(data.emergencyEquipment.records.map((row) => row.site))].sort((a, b) => a.localeCompare(b, 'ko'));
+const equipmentTypeCount = new Set(data.emergencyEquipment.records.map((row) => row.equipment)).size;
 const emergencySource = 'https://www.data.go.kr/data/15012412/fileData.do';
 const accents = ['#63e6be', '#7c9cff', '#ffc857', '#ff7b72', '#d79cff', '#60c8e8', '#a5d66f', '#ff9ac2', '#62d8c3', '#ffa36c', '#83b7ff', '#e4cf63', '#8acb9b', '#c6a5ff'];
 
@@ -165,23 +144,6 @@ function matches(name: string, requirement: Requirement) {
   return requirement.patterns.some((pattern) => target.includes(normalize(pattern)));
 }
 
-function dense(input: number[], weights: number[][], biases: number[], activate = true) {
-  return biases.map((bias, output) => {
-    const value = input.reduce((sum, item, index) => sum + item * weights[index][output], bias);
-    return activate ? Math.max(0, value) : 1 / (1 + Math.exp(-Math.max(-24, Math.min(24, value))));
-  });
-}
-
-function compatibility(site: string, equipment: string) {
-  const siteId = model.sites.indexOf(site);
-  const equipmentId = model.equipment.indexOf(equipment);
-  if (siteId < 0 || equipmentId < 0) return 0;
-  const input = [...model.weights.siteEmbedding[siteId], ...model.weights.equipmentEmbedding[equipmentId]];
-  const hidden1 = dense(input, model.weights.w1, model.weights.b1);
-  const hidden2 = dense(hidden1, model.weights.w2, model.weights.b2);
-  return dense(hidden2, model.weights.w3, model.weights.b3, false)[0];
-}
-
 function inventoryFor(site: string, requirement: Requirement) {
   const rows = data.emergencyEquipment.records.filter((row) => row.site === site && matches(row.equipment, requirement));
   const grouped = new Map<string, EquipmentStockItem>();
@@ -228,7 +190,7 @@ function readinessFor(items: { quantity: number; required: number; weight: numbe
 export default function RecoverGrid() {
   const [site, setSite] = useState('대전충청지사');
   const [incident, setIncident] = useState<IncidentKey>('leak');
-  const siteIndex = Math.max(0, model.sites.indexOf(site));
+  const siteIndex = Math.max(0, sites.indexOf(site));
   const incidentProfile = incidents[incident];
   const requirements = incidentProfile.requirements as readonly Requirement[];
 
@@ -248,17 +210,13 @@ export default function RecoverGrid() {
 
   const transfers = kit.map((needed) => {
     const shortage = Math.max(0, needed.required - needed.quantity);
-    const candidates: SupportCandidate[] = model.sites.filter((candidate) => candidate !== site).map((candidate) => {
+    const candidates: SupportCandidate[] = sites.filter((candidate) => candidate !== site).map((candidate) => {
       const stock = inventoryFor(candidate, needed);
-      const learnedNames = model.equipment.filter((name) => matches(name, needed));
-      const neural = learnedNames.length ? learnedNames.reduce((sum, name) => sum + compatibility(candidate, name), 0) / learnedNames.length : 0;
       const stockCoverage = shortage > 0 ? Math.min(stock.quantity / shortage, 1) : 1;
       const remaining = Math.max(0, stock.quantity - shortage);
       const safeAfter = stock.quantity >= shortage && remaining >= needed.required;
       const distanceKm = straightDistance(site, candidate);
-      const reserveScore = Math.min(remaining / Math.max(1, needed.required), 1);
-      const rankValue = stockCoverage * 0.45 + (safeAfter ? 0.25 : 0) + reserveScore * 0.15 + neural * 0.15;
-      return { site: candidate, ...stock, neural, stockCoverage, remaining, safeAfter, distanceKm, rankValue };
+      return { site: candidate, ...stock, stockCoverage, remaining, safeAfter, distanceKm };
     }).filter((candidate) => candidate.quantity > 0)
       .sort((a, b) => Number(b.safeAfter) - Number(a.safeAfter) || a.distanceKm - b.distanceKm || b.quantity - a.quantity);
     return { ...needed, shortage, candidates };
@@ -293,20 +251,22 @@ export default function RecoverGrid() {
       destinationAfter: item.quantity + totalMoved,
     }));
   });
-  const supportDecision = supportPlan.length === 0 ? '지원 불필요' : unresolvedShortages > 0 ? '안전 지원처 없음' : '지원 가능';
+  const donorBalanceText = [...new Map(supportEquipment.map((item) => [
+    `${item.donor}-${item.category}`,
+    `${item.donor} ${item.category} 합계 ${item.donorCategoryBefore}→${item.donorCategoryAfter}대`,
+  ])).values()].join(' · ');
+  const supportDecision = supportPlan.length === 0 ? '추가 이동 불필요' : unresolvedShortages > 0 ? '지원 후보 없음' : '수량상 지원 후보 확인';
   const supportDecisionCopy = supportPlan.length === 0
-    ? '선택한 사고 시나리오의 기준수량을 현재 사업장이 이미 보유하고 있습니다.'
+    ? '선택한 대응 기준수량을 현재 사업장이 이미 보유하고 있습니다.'
     : unresolvedShortages > 0
-      ? `${unresolvedShortages}종은 가까운 지사 중 지원 후 시나리오 기준수량을 유지할 수 있는 곳이 없습니다.`
-      : '가장 가까운 안전 재고 보유지사에서 지원하며, 보내는 지사의 시나리오 기준수량도 유지합니다.';
+      ? `${unresolvedShortages}종은 다른 사업장의 기준수량을 남기면서 보낼 수 있는 후보가 없습니다.`
+      : '수량 조건을 만족하는 후보 중 공개 주소의 직선거리가 가장 가까운 사업장을 표시했습니다.';
 
   const allRequirements = Object.values(sharedRequirements) as Requirement[];
-  const learnedGaps = allRequirements.map((requirement) => {
+  const readinessGaps = allRequirements.map((requirement) => {
     const current = inventoryFor(site, requirement);
-    const learnedNames = model.equipment.filter((name) => matches(name, requirement));
-    const neural = learnedNames.length ? learnedNames.reduce((sum, name) => sum + compatibility(site, name), 0) / learnedNames.length : 0;
     const shortage = Math.max(0, requirement.required - current.quantity);
-    const peerStocks = model.sites.filter((targetSite) => targetSite !== site).map((targetSite) => {
+    const peerStocks = sites.filter((targetSite) => targetSite !== site).map((targetSite) => {
       const stock = inventoryFor(targetSite, requirement);
       return { site: targetSite, ...stock, distanceKm: straightDistance(site, targetSite), safeAfter: stock.quantity >= shortage + requirement.required };
     })
@@ -316,10 +276,9 @@ export default function RecoverGrid() {
     const allocations = donor ? allocateEquipment(donor, shortage) : [];
     const moved = allocations.reduce((sum, item) => sum + item.moved, 0);
     const usedIn = Object.values(incidents).filter((profile) => profile.requirements.some((item) => item.key === requirement.key)).map((profile) => profile.label);
-    const signal = neural * .55 + peerStocks.length / Math.max(1, model.sites.length - 1) * .45;
-    return { ...requirement, current: current.quantity, shortage, peerSites: peerStocks.length, donor, allocations, moved, usedIn, signal };
+    return { ...requirement, current: current.quantity, shortage, peerSites: peerStocks.length, donor, allocations, moved, usedIn };
   }).filter((item) => item.shortage > 0 && item.peerSites >= 2 && item.donor)
-    .sort((a, b) => b.signal - a.signal || b.weight - a.weight || b.peerSites - a.peerSites)
+    .sort((a, b) => b.usedIn.length - a.usedIn.length || b.weight - a.weight || a.donor!.distanceKm - b.donor!.distanceKm)
     .slice(0, 3);
 
   const fingerprintGroups = [
@@ -339,14 +298,14 @@ export default function RecoverGrid() {
       </header>
 
       <section className="rg-hero">
-        <div><span>긴급 출동</span><h1>긴급복구장비</h1><p>가스 검지기·펌프·발전기·크레인처럼 사고 직후 현장을 통제하고 복구하는 장비입니다. 사업장 보유 목록 350건으로 부족 장비와 지원처를 찾습니다.</p></div>
+        <div><span>긴급 출동</span><h1>긴급복구장비</h1><p>가스 검지기·펌프·발전기·크레인처럼 사고 직후 현장을 통제하고 복구하는 장비입니다. 공개 보유목록의 수량을 비교해 다른 사업장에서 받을 수 있는 장비 후보를 찾습니다.</p></div>
         <div className="rg-selector">
-          <label>확인할 사업장<select value={site} onChange={(event) => setSite(event.target.value)}>{model.sites.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label>사고 상황<select value={incident} onChange={(event) => setIncident(event.target.value as IncidentKey)}>{Object.entries(incidents).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
+          <label>확인할 사업장<select value={site} onChange={(event) => setSite(event.target.value)}>{sites.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label>대응 상황 <small>기획 기준</small><select value={incident} onChange={(event) => setIncident(event.target.value as IncidentKey)}>{Object.entries(incidents).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
         </div>
       </section>
 
-      <div className="page-howto recover-howto"><strong>{incidentProfile.label}</strong><span>{incidentProfile.description}</span><i>→</i><span>보유 수량·부족 장비·지원 사업장을 바로 확인</span></div>
+      <div className="page-howto recover-howto"><strong>{incidentProfile.label}</strong><span>{incidentProfile.description}</span><i>→</i><span>실시간 출동상태가 아닌 공개 보유수량 비교</span></div>
 
       <section className="incident-brief" aria-label={`${incidentProfile.label} 대응 설명`}>
         <div><small>상황</small><strong>{incidentProfile.description}</strong></div>
@@ -357,17 +316,17 @@ export default function RecoverGrid() {
 
       <section className="rg-status">
         <div className="readiness-card">
-          <div className="readiness-ring" style={{ background: `conic-gradient(var(--grid-accent) ${readiness}%, #e2e7e3 ${readiness}% 100%)` }}><div><strong>{readiness}</strong><span>%</span><small>시나리오 준비율</small></div></div>
-          <div className="readiness-card-proof"><strong>계산 기준</strong><p>선택한 사고에서 필요한 기능과 시나리오 기준수량의 충족률입니다.</p><span>기능 중요도 × 수량 충족률</span><small>공식 보유기준이 아닌 대응 비교값</small></div>
+          <div className="readiness-ring" style={{ background: `conic-gradient(var(--grid-accent) ${readiness}%, #e2e7e3 ${readiness}% 100%)` }}><div><strong>{readiness}</strong><span>%</span><small>장비 충족률</small></div></div>
+          <div className="readiness-card-proof"><strong>장비 충족률 계산</strong><p>선택 상황에 필요한 기능별 기준수량과 공개 보유수량을 비교합니다.</p><span>기능 중요도 × 수량 충족률</span><small>공식 보유기준이 아닌 기획용 비교값</small></div>
         </div>
-        <div className="rg-site-summary"><span>{site}</span><h2>{incidentProfile.label}</h2><div><p><small>실보유 장비 종류</small><strong>{positiveEquipmentTypes}<em>종</em></strong></p><p><small>전체 보유 수량</small><strong>{data.emergencyEquipment.bySite[site]?.quantity || 0}<em>대</em></strong></p><p><small>확인할 장비군</small><strong>{transfers.length}<em>개</em></strong></p></div><p className="readiness-summary"><b>확인할 장비군</b>은 선택한 사고 시나리오의 기준수량보다 실제 보유량이 적은 항목입니다. 장비명이 달라도 같은 기능이면 한 장비군으로 합칩니다.</p></div>
+        <div className="rg-site-summary"><span>{site}</span><h2>{incidentProfile.label}</h2><div><p><small>실보유 장비 종류</small><strong>{positiveEquipmentTypes}<em>종</em></strong></p><p><small>전체 보유 수량</small><strong>{data.emergencyEquipment.bySite[site]?.quantity || 0}<em>대</em></strong></p><p><small>확인할 장비군</small><strong>{transfers.length}<em>개</em></strong></p></div><p className="readiness-summary"><b>확인할 장비군</b>은 선택한 대응 상황의 기준수량보다 실제 보유량이 적은 항목입니다. 장비명이 달라도 같은 기능이면 한 장비군으로 합칩니다.</p></div>
         <div className="rg-fingerprint"><span>보유 구성</span>{fingerprintGroups.map((item) => <div key={item.label}><small>{item.label}</small><i><b style={{ width: `${Math.round(item.quantity / fingerprintMax * 100)}%` }} /></i><strong>{item.quantity}</strong></div>)}</div>
       </section>
 
       <section className="rg-main-grid">
         <div className="dispatch-kit">
           <div className="rg-title"><h2>필요 장비</h2><small>{site.replace('지사', '')} · {incidentProfile.label}</small></div>
-          <p className="section-help">큰 글자는 <b>한국가스기술공사 원자료의 실제 장비명</b>입니다. 작은 글자는 장비가 맡는 기능이며, 기준수량은 사고별 대응을 비교하기 위한 시나리오 값입니다. <a href={emergencySource} target="_blank" rel="noreferrer">원문 ↗</a></p>
+          <p className="section-help">큰 글자는 <b>한국가스기술공사 원자료의 실제 장비명</b>입니다. 작은 글자는 장비가 맡는 기능입니다. 기준수량은 화면 비교를 위한 기획 기준이며 공사의 공식 배치기준이 아닙니다. <a href={emergencySource} target="_blank" rel="noreferrer">원문 ↗</a></p>
           <div className="kit-columns kit-columns-wide"><span>장비</span><span>용도</span><span>보유 / 기준</span><span>충족</span></div>
           {kit.map((item) => {
             const coverage = Math.min(item.quantity / item.required, 1);
@@ -377,12 +336,12 @@ export default function RecoverGrid() {
 
         <div className="transfer-board">
           <div className="rg-title"><h2>장비 지원</h2><small>실제 장비명 · 실제 보유수량</small></div>
-          <p className="section-help">지원 후에도 사고 시나리오의 기준수량을 유지할 수 있는 사업장만 남긴 뒤, <b>공개 주소 기준 직선거리가 가장 가까운 곳</b>을 우선 제시합니다.</p>
+          <p className="section-help">필요수량을 보내고도 같은 기능의 기준수량이 남는 사업장만 추린 뒤, <b>공개 주소 기준 직선거리가 가장 가까운 곳</b>을 표시합니다. 실제 보관 위치·점검 상태·교통시간은 반영하지 않습니다.</p>
           <div className="support-plan-strip">
             <div><small>필요 장비</small><strong>{transfers.length}<em>종</em></strong></div>
             <div><small>보내는 사업장</small><strong>{supportSites.length}<em>곳</em></strong></div>
             <div><small>옮기는 수량</small><strong>{transferUnits}<em>대</em></strong></div>
-            <div><small>선정 기준</small><strong>최단거리<em>· 안전재고</em></strong></div>
+            <div><small>선정 기준</small><strong>직선거리<em>· 잔여수량</em></strong></div>
           </div>
           <div className="support-route-list">{supportPlan.map((item) => {
             const moved = item.selected ? Math.min(item.shortage, item.selected.quantity) : 0;
@@ -392,7 +351,7 @@ export default function RecoverGrid() {
             const locationLine = [...new Set(allocations.flatMap((stock) => stock.locations))].join(' · ') || '보유장소 확인 필요';
             const donorInfo = item.selected ? siteDirectory[item.selected.site] : undefined;
             return <article className="support-route" key={item.key}>
-              <header><div><small>{item.label}</small><strong>{equipmentLine}</strong></div><span className={item.selected?.safeAfter ? 'route-safe' : 'route-check'}>{item.selected ? `직선거리 약 ${item.selected.distanceKm}km · 안전재고 유지` : '안전 지원처 없음'}</span></header>
+              <header><div><small>{item.label}</small><strong>{equipmentLine}</strong></div><span className={item.selected?.safeAfter ? 'route-safe' : 'route-check'}>{item.selected ? `직선거리 약 ${item.selected.distanceKm}km · 기준수량 유지` : '지원 후보 없음'}</span></header>
               {item.selected ? <>
                 <div className="support-impact"><b>장비가 없으면</b><strong>{item.risk}</strong><span>{item.impact}</span></div>
                 <div className="support-route-flow">
@@ -404,30 +363,30 @@ export default function RecoverGrid() {
                   <div><small>보내는 곳 주소</small><strong>{donorInfo?.address || '주소 확인 필요'}</strong><span>{donorInfo ? `연락 ${donorInfo.phone}` : ''}</span></div>
                   <div><small>받는 곳 주소</small><strong>{siteDirectory[site]?.address || '주소 확인 필요'}</strong><span>직선거리 비교 · 교통시간 아님</span></div>
                 </div>
-                <footer><span>보유장소 {locationLine}</span>{allocations.map((stock) => <span key={stock.name}>지원 후 {item.selected?.site} {stock.name} {stock.remaining}대</span>)}<span>{unresolved ? `${unresolved}대 추가 확보 필요` : '받는 지사 필요수량 충족'}</span><span>다음 후보 {item.backup ? `${item.backup.site} · 약 ${item.backup.distanceKm}km · 안전재고 유지` : '없음'}</span></footer>
+                <footer><span>보유장소 {locationLine}</span><span>{item.selected.site} {item.label} 합계 {item.selected.quantity}대 → {item.selected.remaining}대</span>{allocations.map((stock) => <span key={stock.name}>{stock.name} {stock.quantity}대 중 {stock.moved}대 이동</span>)}<span>{unresolved ? `${unresolved}대 별도 확보 필요` : '받는 사업장 기준수량 충족'}</span><span>다음 후보 {item.backup ? `${item.backup.site} · 약 ${item.backup.distanceKm}km · 기준수량 유지` : '없음'}</span></footer>
               </> : <p className="route-empty">다른 사업장에도 확인 가능한 장비가 없습니다.</p>}
             </article>;
           })}</div>
           {transfers.length === 0 && <p className="rg-empty">이 상황의 최소 장비세트를 모두 충족합니다.</p>}
-          <div className="support-outcome"><small>지원 결과</small><strong>{unresolvedShortages ? `${unresolvedShortages}종은 안전 지원처 없음` : `${incidentProfile.label} 시나리오 충족`}</strong><p>{unresolvedShortages ? '가까워도 보내는 지사의 시나리오 기준수량이 무너지면 지원처로 선정하지 않습니다.' : '가장 가까운 후보에서 필요한 수량만 옮기고, 보내는 지사의 시나리오 기준수량을 유지합니다.'}</p></div>
+          <div className="support-outcome"><small>수량 비교 결과</small><strong>{unresolvedShortages ? `${unresolvedShortages}종은 지원 후보 없음` : `${incidentProfile.label} 장비 기준 충족`}</strong><p>{unresolvedShortages ? '가까워도 보내는 사업장의 기준수량이 부족해지면 후보에서 제외합니다.' : '가장 가까운 후보에서 필요한 수량만 옮겼을 때 양쪽 사업장이 기획 기준을 충족합니다.'}</p></div>
         </div>
       </section>
 
       <section className="support-check">
-        <div className="support-check-copy"><span>지원 결정</span><h2>지원안 점검</h2><p>장비를 보낸 뒤 양쪽 사업장의 필요수량을 다시 확인합니다.</p></div>
+        <div className="support-check-copy"><span>이동 전후</span><h2>지원 후보 검토</h2><p>장비를 옮긴다고 가정했을 때 양쪽 사업장의 수량을 다시 계산합니다.</p></div>
         <div className="support-check-metrics">
-          <div><small>받는 지사 준비율</small><strong>{readiness}% → {supportedReadiness}%</strong><p>{site} · {incidentProfile.label}</p></div>
+          <div><small>받는 곳 장비 충족률</small><strong>{readiness}% → {supportedReadiness}%</strong><p>{site} · {incidentProfile.label}</p></div>
           <div><small>이동 장비</small><strong>{transfers.length}종 · {transferUnits}대</strong><p>{supportEquipment.length ? supportEquipment.map((item) => `${item.name} ${item.destinationBefore}→${item.destinationAfter}대`).join(' · ') : '이동 장비 없음'}</p></div>
-          <div><small>보내는 곳</small><strong>{supportSites.join(' · ') || '-'}</strong><p>{supportEquipment.length ? supportEquipment.map((item) => `${item.name} ${item.quantity}→${item.remaining}대`).join(' · ') : '지원 불필요'}</p></div>
-          <div><small>지원처 선정</small><strong>거리 + 안전재고</strong><p>지원 후 시나리오 기준수량 유지 후보 중 가장 가까운 지사</p></div>
+          <div><small>보내는 곳</small><strong>{supportSites.join(' · ') || '-'}</strong><p>{donorBalanceText || '추가 이동 불필요'}</p></div>
+          <div><small>후보 선정</small><strong>수량 + 직선거리</strong><p>이동 후 기준수량을 유지하는 곳 중 공개 주소가 가장 가까운 사업장</p></div>
         </div>
         <div className={unresolvedShortages ? 'support-check-result check-warning' : 'support-check-result check-safe'}><small>판정</small><strong>{supportDecision}</strong><p>{supportDecisionCopy}</p></div>
       </section>
 
       <section className="rg-model">
-        <div className="rg-title"><h2>추가 확보</h2><small>{learnedGaps.length}종 확인</small></div>
-        <p className="section-help">현재 사업장에 없거나 시나리오 기준수량이 부족한 장비입니다. 장비 패턴 신경망은 다른 사업장의 반복 보유 조합을 참고해 <b>확인 순서만 제안하고</b>, 지원 가능 여부는 수량·안전재고·거리로 판단합니다.</p>
-        <div className="placement-cards">{learnedGaps.length ? learnedGaps.map((item, index) => {
+        <div className="rg-title"><h2>평시 보완 후보</h2><small>{readinessGaps.length}종 확인</small></div>
+        <p className="section-help">현재 선택한 사고와 별개로, 여러 대응 상황에 공통으로 쓰이지만 이 사업장에 부족한 장비를 보여줍니다. 다른 사업장의 공개 보유수량과 직선거리만 비교한 점검 목록입니다.</p>
+        <div className="placement-cards">{readinessGaps.length ? readinessGaps.map((item, index) => {
           const donor = item.donor!;
           const donorInfo = siteDirectory[donor.site];
           const equipmentLine = item.allocations.map((stock) => `${stock.name} ${stock.moved}대`).join(' · ');
@@ -437,12 +396,11 @@ export default function RecoverGrid() {
             <div className="placement-risk"><small>없을 때</small><strong>{item.risk}</strong><p>{item.impact}</p></div>
             <div className="placement-route"><small>보유 지사</small><strong>{donor.site}</strong><p>{donorInfo?.address || '주소 확인 필요'}</p><span>{donorInfo ? `연락 ${donorInfo.phone}` : ''}</span></div>
             <div className="placement-balance"><small>지원 전 → 지원 후</small><strong>{item.allocations.map((stock) => `${stock.name} ${stock.quantity}대 → ${stock.remaining}대`).join(' · ')}</strong><p>{site} {item.current}대 → {item.current + item.moved}대</p></div>
-            <div className="placement-time"><small>선정 기준</small><strong>직선거리 약 {donor.distanceKm}km</strong><p>지원 후 시나리오 기준수량 유지</p></div>
+            <div className="placement-time"><small>후보 기준</small><strong>직선거리 약 {donor.distanceKm}km</strong><p>이동 후 기획 기준수량 유지</p></div>
           </article>;
         }) : <p className="placement-empty">현재 공개데이터에서 추가로 확인할 장비가 없습니다.</p>}</div>
-        <div className="model-status"><span><i />장비 패턴 분석</span><p>신경망은 14개 사업장의 장비 동반 보유 패턴을 참고해 추가 확인 순서만 제안합니다. 지원 결정에는 사용하지 않습니다.</p></div>
-        <div className="rg-model-metrics"><div><small>원자료</small><strong>{number.format(model.data.records)}건</strong></div><div><small>사업장</small><strong>{model.data.sites}곳</strong></div><div><small>장비명</small><strong>{model.data.equipmentTypes}종</strong></div><div><small>분석 조합</small><strong>{number.format(model.data.allPairs)}쌍</strong></div></div>
-        <div className="model-use-tags"><b>역할 분리</b><span>신경망: 확인 순서</span><span>지원 결정: 수량·거리</span><span>최종 판단: 담당자</span><span>수량·주소: 원자료</span></div>
+        <div className="rg-model-metrics"><div><small>공개 원자료</small><strong>{data.emergencyEquipment.records.length}건</strong></div><div><small>사업장</small><strong>{sites.length}곳</strong></div><div><small>실제 장비명</small><strong>{equipmentTypeCount}종</strong></div><div><small>비교 기준</small><strong>수량·거리</strong></div></div>
+        <div className="model-use-tags"><b>확인 범위</b><span>보유수량: 원자료</span><span>이동 후보: 수량·직선거리</span><span>제외: 실시간 상태·교통</span><span>최종 판단: 담당자</span></div>
       </section>
     </main>
   );
